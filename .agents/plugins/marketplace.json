@@ -1,0 +1,16 @@
+{
+  "name": "yd",
+  "interface": {
+    "displayName": "yd skills",
+    "shortDescription": "Duo Claude+Codex convergence skills"
+  },
+  "plugins": [
+    {
+      "name": "yd",
+      "source": { "path": "./" },
+      "policy": "allow",
+      "category": "agents",
+      "description": "Duo skills (design, discuss, forge, prod-ready, research, review) for symmetric Claude+Codex convergence."
+    }
+  ]
+}

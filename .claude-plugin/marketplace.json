@@ -1,0 +1,21 @@
+{
+  "name": "yd",
+  "owner": {
+    "name": "Yurii Denysenko",
+    "email": "yuridevx@gmail.com",
+    "url": "https://github.com/yuridevx"
+  },
+  "metadata": {
+    "description": "yd: duo skills for symmetric Claude+Codex convergence",
+    "version": "0.1.0"
+  },
+  "plugins": [
+    {
+      "name": "yd",
+      "source": "./",
+      "description": "Duo skills (design, discuss, forge, prod-ready, research, review) for symmetric Claude+Codex convergence.",
+      "category": "agents",
+      "keywords": ["duo", "codex", "convergence"]
+    }
+  ]
+}
