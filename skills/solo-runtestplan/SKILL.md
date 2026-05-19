@@ -263,3 +263,111 @@ Compose-build terminal states:
 - `CLEAN` — stack healthy on first attempt.
 - `REPAIRED` — stack healthy after N re-dispatches (logged in Log.md).
 - `BLOCKED` — budget exhausted; mission halts.
+
+## flow-execute Phase
+
+Strict sequential per-flow execution. Per-flow subagents dispatched one at a time in the order defined by `run-manifest.json`: local flows first grouped by `(tree-tag, repo, svc)` in document order, then cross-app flows last.
+
+### Per-Flow Subagent Prompt
+
+Composed in-memory by main, passed as the Agent tool's `prompt` parameter:
+
+- Mission folder absolute path, CWD absolute path.
+- Absolute paths: `RULEBOOK_ABS` (linked-testplan/SKILL.md), `BUGS_ABS`, `LOG_ABS`, `MANIFEST_ABS`.
+- The flow page absolute path + every `Entry:` / `Code refs:` file path.
+- External-dep tags scoped to this flow.
+- Service-to-container mapping for the running stack.
+- Runner exec template:
+
+```
+docker compose -f <mission>/compose.yaml exec -T runner sh -c '<cmd>'
+```
+
+- Append paths and append-only contract.
+- Write paths: `attempts/attempt-rNN.md` + `terminal.md`. Forbidden to write anywhere else except via append to Bugs/Log.
+- Read paths: all prior `attempts/attempt-r*.md` and `recovery/repair-r*.md` in this unit subfolder.
+- Attempt number + recovery budget remaining.
+- Boundaries:
+  - No sub-subagents.
+  - No edits to test plan, compose.yaml, or runner Dockerfile.
+  - Self-recovery allowed only inside the stack (in-place subagent fixes); no compose authoring.
+
+### Self-Recovery Boundary
+
+**Subagent-fixable** (in-dispatch self-heal):
+
+- Install tools in the runner: `docker compose exec runner apk add <pkg>` / `apt-get install` / similar.
+- Restart a single service: `docker compose restart <svc>`.
+- Wait-then-retry on healthcheck (bounded, e.g. 5 × 3s).
+- Reset kafka topic (delete + recreate via broker CLI).
+- Flush redis keys for a prefix.
+- Drop + recreate postgres schema / truncate tables.
+- Seed init state via SQL or HTTP POST against in-stack services.
+
+**Main-fixable only** (subagent escalates with bail):
+
+- Edit `compose.yaml` (add service, change image tag, change env var, change network, change healthcheck definition).
+- Edit `compose.runner.Dockerfile` (change base image; runtime tool installs stay subagent-fixable).
+- Full stack rebuild / `down -v && up -d`.
+- Cross-flow state corruption that the upcoming flow can't reach to scrub.
+- Structural compose gap (test plan declares a topic / table / service the manifest didn't generate).
+
+### Per-Attempt Control Flow Inside the Subagent
+
+1. **Read context.** Flow page + prior `attempt-r*.md` + prior `repair-r*.md` + run-manifest scope.
+2. **Pre-flight requirements check.** Scan all scenarios; infer the toolset and in-stack deps required. For each requirement:
+   - Satisfied → continue.
+   - Not satisfied → attempt self-recovery from the subagent-fixable set. Append `recovery-action` to `Log.md` with `actor: subagent` per action.
+   - Self-recovery fails after local retry budget → **accumulate** into `bail_errors`. Do NOT return yet; continue checking other requirements.
+3. **Scenario loop.** For each scenario in document order:
+   - Set up preconditions (idempotent). Failure here triggers self-recovery; persistent failure accumulates to `bail_errors`; affected scenario is skipped within this attempt and logged as `scenario-skipped-by-bail`.
+   - Execute `Steps:` via runner exec. Capture exit code, stdout, stderr per command.
+   - Observe `Expected:` via runner exec. Untranslatable observations trigger the same self-recovery path.
+   - Classify PASS / FAIL. Append `scenario-pass` or `scenario-fail` to `Log.md`. On FAIL, append a `kind: assertion-contradicted` block to `Bugs.md`. Continue regardless.
+   - SKIPPED scenarios (pre-flagged in manifest) skip execution; append `scenario-skipped` with `skip_reason` from manifest.
+4. **Terminal.** Write `terminal.md` summarizing per-scenario outcomes for this attempt.
+5. **Return** structured payload (see below).
+
+The subagent **accumulates** bail errors and continues checking other requirements / scenarios — it does NOT return on first failure. Main receives the full error list in one batch and addresses all of them in one repair cycle.
+
+### Subagent Return Shape
+
+```yaml
+attempt: <N>
+unit_key: flow-execute/<tree-tag>__<flow-id>
+state: PASS-all | mixed | FAIL-all | bailed
+self_recovery_actions: [<action list>]
+bail_errors:
+  - kind: tool-unfixable | infra-unfixable | observation-unfixable | compose-gap
+    detail: { tool?, container?, observation?, evidence: [...] }
+    self_recovery_tried: [<list>]
+    rationale: <terse why-it's-main's-job>
+scenarios:
+  - { name, tag, outcome: PASS|FAIL|SKIPPED|SKIPPED-BY-BAIL, bug_id?: <n> }
+```
+
+`PASS-all` / `mixed` / `FAIL-all` are terminal — main moves to scrub + next flow. `bailed` triggers main's recovery cycle.
+
+### Soft Self-Recovery Budgets Inside the Subagent
+
+Defaults, overridable in the prompt by main:
+
+- Tool install: 2 attempts per tool.
+- Service restart + wait-health: 3 cycles of `restart → 5×3s healthcheck poll`.
+- Topic / schema / key reset: 2 attempts.
+
+If a single requirement hits its local budget, the subagent accumulates the bail and moves on — it does not retry that requirement again within the same attempt.
+
+### Re-Dispatch Contract
+
+Fresh-context subagent each attempt. New attempt reads every prior `attempt-r*.md` + `repair-r*.md`. Main runs a **scrub before every attempt** (first dispatch and every re-dispatch). Every scenario re-runs from scratch.
+
+### Cross-App Flow Execution
+
+Same per-flow subagent shape. Differences:
+
+- The prompt names multiple services as actors.
+- The scenario `Steps:` are prefixed `<service> → <service>:`.
+- The subagent typically issues `curl` between services, or back-to-back kafka producer/consumer pairs via runner exec.
+
+No special phase or unit kind.
