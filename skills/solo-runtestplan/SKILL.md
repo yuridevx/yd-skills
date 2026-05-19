@@ -621,3 +621,69 @@ On harness restart with the same slug, main reads `journal.jsonl` tail:
 - Last event `phase_start` without `phase_complete` → resume that phase.
 - Last event `subagent_spawn` without `attempt_complete` → re-spawn the same attempt (output paths deterministic; subagents are fresh-context).
 - Last event `recovery_cycle` without subsequent `subagent_spawn` → re-dispatch the next attempt.
+
+## result Phase
+
+Sequential final phase. Only hard barrier in normal operation: all `flow-execute` units terminal.
+
+1. Main writes `Result.md` per the template above.
+2. Main writes `.solo-run/result/coverage-matrix.json` — one row per (tree, flow, scenario) with outcome, bug-id-if-any, attempts-used, recovery-cycles-used.
+3. No `result-sanity` subagent (no cross-flow contradiction pass). `Bugs.md` is the source of truth; cross-flow analysis is a follow-up `duo-review` mission over the mission folder.
+4. If the `teardown` modifier is present: `docker compose -f <mission>/compose.yaml down -v` after `Result.md` is written.
+5. Append `phase_complete` for `result`.
+
+## Outcome Model
+
+Closed terminal set per scenario:
+
+| Outcome | Meaning |
+|---|---|
+| **PASS** | Every `Expected:` observation confirmed by CLI evidence. |
+| **FAIL** | At least one `Expected:` observation contradicted. → `Bugs.md` `kind: assertion-contradicted`. |
+| **SKIPPED** | Manifest-flagged at `plan-aggregate` (`[unresolved:]` tag or unmockable external). Never executed. |
+| **SKIPPED-BY-BAIL** | Executable, but the same-attempt bail prevented running this scenario. Re-runs after main repair. |
+
+No INCONCLUSIVE. Observation gaps drive recovery loops to PASS / FAIL or to `kind: observation-exhausted` (recorded as FAIL with full attempt log).
+
+Per-flow terminal set:
+
+| Flow state | Meaning |
+|---|---|
+| **PASS-all** | Every scenario PASS. |
+| **mixed** | At least one PASS and at least one FAIL or SKIPPED. |
+| **FAIL-all** | Every scenario FAIL (no PASS). |
+| **budget-exhausted** | Recovery budget hit before all scenarios reached a terminal state. Unresolved scenarios converted to `observation-exhausted` bugs. |
+
+## Failure Modes
+
+| Failure | Owner | Behavior |
+|---|---|---|
+| Docker / `docker compose` not on PATH | Main, pre-mission | Halt with clean error; no folder created. |
+| Input slug/path unresolvable | Main, plan-aggregate | Halt with clean error listing failing inputs. |
+| Test plan markdown malformed | Main, plan-aggregate | Skip the malformed page, note in `run-manifest.json` with `parse_error`, continue. All-pages failure → halt. |
+| Compose-build subagent emits unbuildable compose | Main | Re-dispatch with validation errors. Budget-exhausted → mission halt. |
+| Stack fails to become healthy after `up -d` | Main | Re-dispatch compose-build with container logs. Budget-exhausted → mission halt. |
+| Per-flow subagent returns no output / malformed YAML payload | Main | Retry same attempt once. Second failure → flow `budget-exhausted`; append `observation-exhausted` bug with reason `subagent-malformed-output`. |
+| Per-flow subagent bails with errors | Main | Recovery cycle. Re-dispatch attempt N+1. Budget-exhausted → flow `budget-exhausted` + bugs filed; continue to next flow. |
+| Scrub failure | Main | Treat as infra-suspect for the upcoming flow's first attempt; consumes that flow's `recovery-budget`. |
+| Stack recycle required mid-mission | Main | Append `stack-recycle` event; record in `Result.md → Caveats`. |
+| Compose-build budget exhausted mid-mission | Main | `mission_halted { reason: compose-build-exhausted }`. `Result.md` written with halt details. |
+| User interrupt mid-mission | Main | Journal tail is the resume point. Re-run with same slug resumes. |
+
+## Hard Rules
+
+- **No Codex.** No `codex` invocation, no `.codex/` directory, no codex-specific flags. The skill must not reference Codex as a runtime tool.
+- **Trigger only on explicit `solo` keyword.** Same discipline as `solo-testplan`.
+- **No external ports.** Generated `compose.yaml` must not declare `ports:` on any service. Main validates after every compose-build output.
+- **Single runner.** All CLI execution flows through `docker compose exec -T runner sh -c '…'`.
+- **Main is a thin coordinator + stack operator.** Main runs `docker compose` commands, owns the journal/manifest/ledger headers/Result.md/coverage-matrix.json, runs scrub, and drives recovery. Main does NOT author content for `compose.yaml`, the runner Dockerfile, scenario translations, or bug entries.
+- **`compose.yaml` and `compose.runner.Dockerfile` are authored only by the compose-build subagent.** Main edits neither directly.
+- **No INCONCLUSIVE state.** Every scenario terminates PASS / FAIL / SKIPPED / SKIPPED-BY-BAIL.
+- **Append-only ledgers.** `Bugs.md` and `Log.md` are immutable after each append. Re-dispatches append new entries; they never edit prior ones.
+- **Per-flow subagents are short-lived, fresh-context.** Each attempt is a separate dispatch. No nested subagents.
+- **Subagents read only what's in their prompt + their own unit subfolder + the linked-testplan rulebook + source within declared scope.** Subagents write only inside their own unit subfolder + via append to `Bugs.md` and `Log.md`.
+- **Web always allowed.**
+- **Strict sequential flows.** No parallel flow execution in v1.
+- **Scrub before every flow attempt** (first dispatch and every re-dispatch).
+- **Recovery budgets are bounded.** `recovery-budget=N` (default 5).
+- **No polling.** Main waits for harness completion notifications between subagent dispatches.
