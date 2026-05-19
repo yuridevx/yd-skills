@@ -1,6 +1,6 @@
 ---
 name: solo-testplan
-description: Claude-only counterpart to `duo-testplan` — same e2e test plan tree (`Solo/TestPlan-<slug>/Result.md` plus `test-plan/.../flows/<flow-id>.md`) authored by Claude alone, no codex peer. Five named phases: service-scope, local-flows, cross-app-survey (in-session mechanical reconciliation), cross-app-flows, result. Per-unit lifecycle is a chain of fresh-context subagent dispatches — one Author round plus N Refinement rounds, each reading every prior `Author-r*.md` and `Refine-r*.md`. Refinement is substance-only (missing/wrong/gap/citation-error/checklist-violation); editorial edits forbidden. Default cap R0+1; `deep-refinement` → R0+3; `extended-refinement` removes cap. Consumes the `linked-testplan` rulebook as-is. `check-refs.py` runs only at `result`. TRIGGERS ONLY on explicit "solo" keyword — `solo testplan X`, `solo-testplan X`, `/solo-testplan X`, `solo build a test plan for X`. Does NOT auto-activate on plain `test plan X`, `e2e plan`, or `generate tests for X`.
+description: Claude-only counterpart to `duo-testplan` — same e2e test plan tree (`Solo/TestPlan-<slug>/Result.md` plus `test-plan/.../flows/<flow-id>.md`) authored by Claude alone, no codex peer. Five named phases: service-scope, local-flows, cross-app-survey (in-session mechanical reconciliation), cross-app-flows, result. Per-unit lifecycle is a chain of fresh-context subagent dispatches — one Author round plus N Refinement rounds, each reading every prior `Author-r*.md` and `Refine-r*.md` in the unit subfolder. Refinement is substance-only (missing/wrong/gap/citation-error/checklist-violation); editorial edits forbidden. Default round cap R0+1; `extended-refinement` removes the cap. Consumes the `linked-testplan` rulebook as-is. `check-refs.py` runs only at `result`. TRIGGERS ONLY on explicit "solo" keyword — `solo testplan X`, `solo-testplan X`, `/solo-testplan X`, `solo build a test plan for X`. Does NOT auto-activate on plain `test plan X`, `e2e plan`, or `generate tests for X`.
 ---
 
 # Solo Testplan
@@ -36,8 +36,7 @@ Default mode is allowed. Ask at most one clarifying question if the mission goal
 |---|---|
 | `high-concurrency` | Shared cap 8 → 16 across `service-scope` / `local-flows` / `cross-app-flows`. |
 | `very-high-concurrency` | Shared cap → 32. |
-| `deep-refinement` | Round cap per unit → R0 + 3 (default is R0 + 1). |
-| `extended-refinement` | Remove the round cap; soft warning every +2 unresolved rounds per unit. |
+| `extended-refinement` | Remove the round cap; soft warning every +2 unresolved rounds per unit. (Default cap is R0 + 1.) |
 | `web-allowed` | Per-unit subagents may use WebFetch / WebSearch. |
 
 ### Filter and Slug
@@ -73,29 +72,22 @@ Solo/TestPlan-<slug>/
     Reconciled-crossapp.json
     service-scope/
       <repo>__<svc>/
-        prompt-author.txt
         Author-r00.md
-        prompt-refine-r01.txt
         Refine-r01.md
         Author-r01.md
-        Committed.md
     local-flows/
       <flow-id>/
-        prompt-author.txt
         Author-r00.md
-        prompt-refine-r01.txt
         Refine-r01.md
         Author-r01.md
-        Committed.md
     cross-app-flows/
       <cflow-id>/
         ... same shape ...
-        Committed.md
     result-sanity/
       Findings.md
 ```
 
-Root contains only visible deliverables: `Result.md` and `test-plan/`. All scratch, prompts, per-round artifacts, and journals stay in `.solo/`.
+Root contains only visible deliverables: `Result.md` and `test-plan/`. All scratch, per-round artifacts, and journals stay in `.solo/`.
 
 Slash characters in repo names become `__` to keep paths flat under `service-scope/`. The `<flow-id>` and `<cflow-id>` follow `linked-testplan` Rule 11.
 
@@ -120,7 +112,7 @@ Use:
 2. `RULEBOOK_ABS` for page shape, coverage vocabulary, scenario policy, mocks policy, cross-app policy, and the 21-rule checklist.
 3. `RULEBOOK_REFS_ABS` selectively for page examples, checklist rationale, and flow-id edge cases.
 4. `.solo/unit-manifest.json` after `service-scope`.
-5. Upstream `.solo/<phase>/<unit-key>/Committed.md` artifacts from earlier phases.
+5. Upstream converged artifacts from earlier phases (the max-N `Author-r<N>.md` of each terminal unit), with absolute paths passed in by main via the dispatch prompt.
 6. Web only when `web-allowed` appears in the user's prose.
 
 Apply this exclusion set to source walks:
@@ -180,7 +172,7 @@ Main must NOT:
 | Event | Fields | When |
 |---|---|---|
 | `phase_start` | `phase`, `ts` | Before phase work starts. |
-| `subagent_spawn` | `phase`, `unit_key`, `role` (`author` or `refinement`), `round`, `cap_consumed`, `prompt_path`, `expected_output_path` | Before each subagent dispatch. |
+| `subagent_spawn` | `phase`, `unit_key`, `role` (`author` or `refinement`), `round`, `cap_consumed`, `expected_output_path` | Before each subagent dispatch. |
 | `artifact_accepted` | `path`, `status` | After validating an output. |
 | `artifact_rejected` | `path`, `reason` | After rejecting malformed or empty output. |
 | `round_complete` | `unit_key`, `round`, `round_kind`, `substantial_diff_count`, `change_kinds` | After accepting a round. |
@@ -197,18 +189,16 @@ Every unit's progress is externalized to files on disk inside the unit's subfold
 
 ### R0 — Author
 
-Main spawns an Author subagent with a prompt containing:
+Main spawns an Author subagent via the Agent tool. The full prompt is passed directly as the Agent tool's `prompt` parameter — no prompt files are written to disk (main and subagents both run in the same Claude harness; the Agent tool is the delivery mechanism). The prompt contains:
 
 - Mission folder absolute path, CWD absolute path.
 - `RULEBOOK_ABS`, `RULEBOOK_REFS_ABS`.
 - Phase name and unit key.
 - Source scope (paths to walk; exclusion set).
-- Upstream committed artifacts to consume (e.g., `local-flows` units receive the `service-scope` `Committed.md` of their owning service).
+- Upstream converged artifacts to consume, passed as absolute paths (e.g., `local-flows` units receive the path of their owning service's converged `service-scope` `Author-r<N>.md`).
 - Required field set for the phase (rulebook page shape).
 - For `service-scope`: the external-dep tag taxonomy below.
-- Output spec: write `Author-r00.md` and append a YAML fence reporting `round_kind: author` and `field_set_complete: bool`.
-
-The prompt is delivered two ways simultaneously: main writes the full prompt text to `prompt-author.txt` in the unit subfolder, then dispatches the Agent tool with a thin wrapper instructing the subagent to read that file first. This keeps the prompt on disk for resumability and audit.
+- Output spec: write `Author-r00.md` and append a YAML fence reporting `round_kind: author`.
 
 The subagent reads only the rulebook, the source under its declared scope, and any upstream committed artifact passed in. It does not read other unit subfolders. It does not write outside its own unit subfolder.
 
@@ -230,7 +220,9 @@ The subagent:
 5. Applies the revisions to produce `Author-r<k+1>.md`.
 6. Appends a YAML fence reporting `round_kind: refinement`, `substantial_diff_count: N`, and `change_kinds_seen: [...]`.
 
-After the round, main writes `round_complete`. If `substantial_diff_count == 0`, the unit terminates `CLEAN` and main copies the latest `Author-r*.md` to `Committed.md` (and to the final `test-plan/` path for `local-flows` and `cross-app-flows`). If `substantial_diff_count > 0` and the round is below cap, main spawns the next refinement. If at cap with residuals, the round is `CAPPED` — the last refinement subagent must pre-apply `[unresolved: <field-id>: <reason>]` tags inline before writing `Author-r<k+1>.md`.
+After the round, main writes `round_complete` plus `gate_resolved` when terminal. If `substantial_diff_count == 0`, the unit terminates `CLEAN` — the latest `Author-r<N>.md` is the converged artifact. For `local-flows` and `cross-app-flows`, main copies that file to its final `test-plan/` path. If `substantial_diff_count > 0` and the round is below cap, main spawns the next refinement. If at cap with residuals, the round is `CAPPED` — the last refinement subagent must pre-apply `[unresolved: <field-id>: <reason>]` tags inline before writing `Author-r<k+1>.md`.
+
+Downstream consumers (main during reconciliation, cross-app-flows units reading producer/consumer pairs, `result` composition) identify a unit's converged artifact by selecting the max-N `Author-r<N>.md` in the unit subfolder. No separate `Committed.md` pointer file exists — the highest-numbered Author file is authoritative because Author-r<k+1>.md is only written when round k+1 completes successfully.
 
 ## Substance-Only Refinement Policy
 
@@ -303,15 +295,15 @@ Stable flow IDs derive from trigger plus entry symbol per linked-testplan Rule 1
 
 Field set: `candidate_roots[]`, `entrypoints[]` with file, line, trigger kind, trigger, and normalized external-dep tag, plus `flow_ids[]`.
 
-Commit: `.solo/service-scope/<repo>__<svc>/Committed.md`. After each commit, main streams `local-flows` for that service's flows (no all-services barrier).
+Terminal artifact: the max-N `Author-r<N>.md` in `.solo/service-scope/<repo>__<svc>/`. After each unit's terminal `gate_resolved`, main streams `local-flows` for that service's flows (no all-services barrier).
 
-After ALL `service-scope` units are terminal, main aggregates committed artifacts into `.solo/unit-manifest.json`. Main then runs `cross-app-survey` in-session.
+After ALL `service-scope` units are terminal, main aggregates each unit's converged artifact into `.solo/unit-manifest.json`. Main then runs `cross-app-survey` in-session.
 
 ### local-flows
 
 Parallel, one unit per local flow_id, sharing the global concurrency cap. Unit keys: `local-flows/<flow-id>`.
 
-Each unit reads the flow entry `file:line`, downstream call sites, related persistence/emission code, `RULEBOOK_ABS`, relevant `RULEBOOK_REFS_ABS`, and the `service-scope` `Committed.md` of its owning service.
+Each unit reads the flow entry `file:line`, downstream call sites, related persistence/emission code, `RULEBOOK_ABS`, relevant `RULEBOOK_REFS_ABS`, and the converged `service-scope` artifact of its owning service (the path is passed in the prompt).
 
 Field set follows the linked-testplan page shape:
 
@@ -319,7 +311,7 @@ Field set follows the linked-testplan page shape:
 - `scenarios[]`: each with name, HAPPY/NEGATIVE tag, preconditions, steps, expected outcomes, mocks, and code refs.
 - `code_refs[]`: flow-level supporting references.
 
-Commit: `.solo/local-flows/<flow-id>/Committed.md`, then copy to `test-plan/<repo>/<svc>/flows/<flow-id>.md`.
+Terminal artifact: max-N `Author-r<N>.md` in `.solo/local-flows/<flow-id>/`. Main copies that file to `test-plan/<repo>/<svc>/flows/<flow-id>.md` at terminal `gate_resolved`.
 
 ### cross-app-survey
 
@@ -327,7 +319,7 @@ Main-session work. No subagent.
 
 Gate: ALL `service-scope` units terminal (not all `local-flows`). Runs concurrently with `local-flows`.
 
-Inputs: every `.solo/service-scope/*/Committed.md`.
+Inputs: each `service-scope` unit's converged `Author-r<N>.md` (the max-N artifact in its subfolder).
 
 Work: pair external-dep tags across services by exact normalized tag string after the scheme prefix:
 
@@ -345,11 +337,11 @@ Output: `.solo/Reconciled-crossapp.json` with `cross_app_flows[]` containing `fl
 
 Parallel, one unit per cross-app flow, sharing the global concurrency cap. Unit keys: `cross-app-flows/<cflow-id>`.
 
-Each unit reuses producer-side and consumer-side `local-flows` `Committed.md` pages as converged facts and reads source only to validate or fill gaps.
+Each unit reuses the producer-side and consumer-side `local-flows` converged artifacts (paths passed in the prompt) as converged facts and reads source only to validate or fill gaps.
 
 Field set follows the linked-testplan cross-app shape. Steps prefix the actor as `<service> → <service>: <action>`. Do not include internal mutation steps across service boundaries.
 
-Commit: `.solo/cross-app-flows/<cflow-id>/Committed.md`, then copy to `test-plan/cross-app/flows/<cflow-id>.md`.
+Terminal artifact: max-N `Author-r<N>.md` in `.solo/cross-app-flows/<cflow-id>/`. Main copies that file to `test-plan/cross-app/flows/<cflow-id>.md` at terminal `gate_resolved`.
 
 ### result
 
@@ -387,8 +379,8 @@ Sequential final phase. The only hard barrier in the pipeline: all `local-flows`
 
 | State | Meaning | Downstream consumption |
 |---|---|---|
-| `CLEAN` | Last refinement round reported `substantial_diff_count: 0`. | Consumed. |
-| `CAPPED` | Round cap hit with residual items. `Committed.md` carries inline `[unresolved: <field-id>: <reason>]` tags pre-applied by the last refinement subagent. | Consumed; tags inventoried in `Result.md`. |
+| `CLEAN` | Last refinement round reported `substantial_diff_count: 0`. | Consumed; the unit's max-N `Author-r<N>.md` is the converged artifact. |
+| `CAPPED` | Round cap hit with residual items. The unit's max-N `Author-r<N>.md` carries inline `[unresolved: <field-id>: <reason>]` tags pre-applied by the last refinement subagent. | Consumed; tags inventoried in `Result.md`. |
 | `BLOCKED` | Unit cannot produce a source-grounded artifact: Author failed twice, or two consecutive refinement rounds malformed. | Not consumed. Recorded in `Result.md`. |
 
 `CLEAN` is also the state when the Author round succeeds and cap = 0. With the default cap of `R0 + 1`, a unit that converges in one refinement pass is `CLEAN`.
@@ -398,7 +390,7 @@ Sequential final phase. The only hard barrier in the pipeline: all `local-flows`
 | Setting | Default | Override |
 |---|---|---|
 | Shared active per-unit subagents across `service-scope` / `local-flows` / `cross-app-flows` | 8 | `high-concurrency` → 16; `very-high-concurrency` → 32 |
-| Refinement round cap per unit | R0 + 1 | `deep-refinement` → R0 + 3; `extended-refinement` removes cap |
+| Refinement round cap per unit | R0 + 1 | `extended-refinement` removes cap (soft warning every +2 unresolved rounds) |
 | Web search | disabled | `web-allowed` → enabled |
 
 Streaming handoff is throttled by the shared cap. Main may spawn `local-flows` units for a service the moment its `service-scope` unit commits, but the shared cap still gates how many total subagents are in flight.
@@ -418,47 +410,41 @@ The main session must not:
 
 Main dispatches the subagent and waits for the completion notification. On notification, main validates the output, decides commit versus next round, and dispatches the next subagent.
 
-## Prompt File Authorship
+## Prompt Construction
 
-For every subagent dispatch, main writes the full prompt to disk before invoking the Agent tool:
-
-```
-$MISSION/.solo/<phase>/<unit-key>/prompt-author.txt
-$MISSION/.solo/<phase>/<unit-key>/prompt-refine-rNN.txt
-```
-
-The Agent tool invocation passes a thin wrapper prompt instructing the subagent to read that file as its first action.
+For every subagent dispatch, main composes the full prompt in-memory and passes it directly as the Agent tool's `prompt` parameter. Prompts are not written to disk. Main and the subagent run in the same Claude harness, so the Agent tool's prompt parameter is the delivery mechanism — there is no separate process boundary to bridge.
 
 Every prompt includes:
 
 - Mission path and CWD.
 - Absolute `RULEBOOK_ABS`, `RULEBOOK_REFS_ABS`, and `CHECK_REFS_ABS`.
-- Phase, unit key, round number, round cap, and expected output paths.
+- Phase, unit key, round number, round cap, and expected output path.
 - Source scope and upstream committed artifacts for the phase.
-- For refinement rounds: paths to every prior `Author-r*.md` and `Refine-r*.md` in the unit subfolder, plus the substance-vs-editorial policy.
-- Exact output format: `Author-rNN.md` for R0 or `Refine-rNN.md` + `Author-rNN.md` for refinement, plus the trailing YAML fence shape.
+- For refinement rounds: paths to every prior `Author-r*.md` and `Refine-r*.md` in the unit subfolder, plus the substance-vs-editorial policy (per § Substance-Only Refinement Policy).
+- Exact output format: `Author-rNN.md` for R0 or `Refine-rNN.md` plus `Author-rNN.md` for refinement, plus the trailing YAML fence shape.
 - Web policy: enabled (when `web-allowed`) or disabled.
+
+Resumability does not depend on prompts being on disk. On harness restart, main reconstructs the prompt deterministically from the journal state plus the on-disk per-round artifacts in the unit subfolder. The reconstruction is mechanical — same journal state and same subfolder contents always produce the same prompt.
 
 ## Subagent Dispatch
 
-Main uses the Agent tool with `subagent_type: general-purpose` and the wrapper prompt:
+Main uses the Agent tool with `subagent_type: general-purpose` and the full prompt as the `prompt` parameter. The dispatch carries no shell command, no file path indirection, no wrapper layer.
 
-```
-Read your prompt at <absolute path to prompt-*.txt>.
-Execute it. Write the expected output file(s) declared in the prompt.
-Do not spawn sub-subagents. Do not write outside your unit's subfolder.
-```
+The prompt must include the explicit boundaries:
 
-The wrapper prompt is short and constant per round kind. The full instructions live in the on-disk prompt file. This separation keeps Agent-tool invocations small while making prompts diff-able, resumable, and auditable on disk.
+- Do not spawn sub-subagents.
+- Do not write outside the unit's subfolder.
+- Do not read other unit subfolders.
+- Write the expected output file at the path declared in the prompt before returning.
 
 ## Self-Review
 
 Before each subagent dispatch:
 
-1. Prompt file exists at the named path and is non-empty.
+1. Prompt includes every section listed in § Prompt Construction.
 2. Output path matches the unit subfolder naming convention.
 3. Journal `subagent_spawn` record is appended.
-4. For refinement rounds, every prior `Author-r*.md` and `Refine-r*.md` in the unit subfolder is referenced in the prompt.
+4. For refinement rounds, every prior `Author-r*.md` and `Refine-r*.md` in the unit subfolder is enumerated in the prompt's refinement context block.
 
 Before `result` finalization:
 
@@ -498,7 +484,7 @@ If the user later supplies substantive corrections, reopen only affected units a
 | Subagent output missing or empty | Main retries the same round once. Second failure → unit `BLOCKED`. |
 | Subagent output malformed YAML trailer | Treat as no-output; same retry policy. |
 | Refinement subagent emits editorial-only diffs | Reject the round; spawn replacement with stricter substance-only prompt. Second failure → treat as no-output. |
-| Round cap reached with residual diffs | Commit last `Author-r*.md` with `[unresolved:]` tags pre-applied. State = `CAPPED`. |
+| Round cap reached with residual diffs | Last refinement subagent pre-applies `[unresolved:]` tags inline before writing the final `Author-r<N>.md`. State = `CAPPED`. |
 | `service-scope` unit blocked | Exclude that service from `local-flows`; record in `Result.md`. |
 | `local-flows` unit blocked | Do not write that flow page; record in `Result.md`. |
 | Ambiguous cross-app match | List candidates in `Reconciled-crossapp.json`; do not silently merge; surface in `Result.md → ## Unresolved`. |

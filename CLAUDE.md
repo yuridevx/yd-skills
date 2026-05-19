@@ -14,7 +14,7 @@ Duo skills (all trigger only on explicit `duo` keyword; each dispatches a second
 
 Solo skill (Claude-only; triggers only on explicit `solo` keyword; writes `Solo/TestPlan-<slug>/`):
 
-- `solo-testplan` - Claude-only counterpart to `duo-testplan`, same artifact shape, no codex. Five named phases (service-scope, local-flows, cross-app-survey, cross-app-flows, result). Each unit decomposes into a chain of independent fresh-context subagent dispatches: one Author round plus N Refinement rounds, each reading every prior `Author-r*.md` and `Refine-r*.md` in the unit subfolder. Refinement is substance-only — editorial edits forbidden. Default round cap R0 + 1; `deep-refinement` → R0 + 3; `extended-refinement` removes the cap. Streaming handoffs replace barriers everywhere except `result`.
+- `solo-testplan` - Claude-only counterpart to `duo-testplan`, same artifact shape, no codex. Five named phases (service-scope, local-flows, cross-app-survey, cross-app-flows, result). Each unit decomposes into a chain of independent fresh-context subagent dispatches: one Author round plus N Refinement rounds, each reading every prior `Author-r*.md` and `Refine-r*.md` in the unit subfolder. Refinement is substance-only — editorial edits forbidden. Default round cap R0 + 1; `extended-refinement` removes the cap. Streaming handoffs replace barriers everywhere except `result`.
 
 Rulebook skill (passive; loaded by orchestrator or by explicit reference, NOT triggered on `duo` or `solo`):
 
