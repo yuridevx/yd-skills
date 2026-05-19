@@ -371,3 +371,79 @@ Same per-flow subagent shape. Differences:
 - The subagent typically issues `curl` between services, or back-to-back kafka producer/consumer pairs via runner exec.
 
 No special phase or unit kind.
+
+## Recovery Cycle (Main-Side)
+
+Triggered when a per-flow subagent returns `state: bailed` with a non-empty `bail_errors` list. Main is the only actor in this cycle — subagents are off-stage between attempts.
+
+**Main does NOT edit `compose.yaml` or `compose.runner.Dockerfile` directly.** Structural fixes go through a compose-build subagent re-dispatch with a refinement-style prompt.
+
+### Cycle Steps
+
+1. **Read & classify.** Parse `bail_errors`; each has a `kind ∈ {tool-unfixable, infra-unfixable, observation-unfixable, compose-gap}` plus `self_recovery_tried`.
+2. **Plan repair actions.** Each `bail_error` maps to one or more main-fixable actions:
+
+   | Bail kind | Likely main action |
+   |---|---|
+   | `tool-unfixable` | Bake the tool into `compose.runner.Dockerfile` via compose-build re-dispatch → rebuild runner. |
+   | `infra-unfixable` | Restart → recycle service → escalate to compose-build for definition change. |
+   | `observation-unfixable` | Typically compose-build issue (missing service, wrong image, wrong env). Dispatch compose-build with bail evidence. |
+   | `compose-gap` | Dispatch compose-build with gap brief. |
+
+3. **Execute targeted runtime fixes first** (no subagent dispatch):
+   - `docker compose restart <svc>` (with health wait).
+   - `docker compose build <svc> && docker compose up -d <svc>` (Dockerfile-only change for the service).
+   - `docker compose build runner && docker compose up -d runner` (after compose-build refinement that touched only the runner image).
+   - Full stack recycle: `docker compose down -v && docker compose up -d` (last resort; logged as `stack-recycle`).
+4. **Dispatch compose-build subagent for structural fixes** — when `compose.yaml` or runner Dockerfile content must change. Compose-build receives a refinement-style prompt: current files, prior Author-rNN.md, bail evidence, "emit minimum diff to fix listed errors". Output is `Author-rNN+1.md` + fresh `compose.yaml` + fresh `compose.runner.Dockerfile`. Main re-applies + health-waits per the bring-up loop above.
+5. **Write `repair-rNN.md`** under the flow's `recovery/` subfolder. One block per action: kind, command or diff, outcome, time. Cycle number `NN` matches the next attempt number.
+6. **Append `recovery-*` events to `Log.md`** as actions happen (`actor: main`).
+7. **Re-dispatch per-flow subagent** for attempt `N+1`. New fresh-context dispatch reads every prior `attempt-r*.md` + `repair-r*.md` and runs a clean scrub before its scenarios.
+
+### Budget Accounting
+
+`recovery-budget=N` (default 5) caps the number of recovery cycles per flow (i.e., maximum `repair-rNN.md` count). The cycle counts as one regardless of how many bail errors it addresses or how many repair actions it invokes. Main batches all repairs for one bail into a single cycle.
+
+### Budget Exhaustion Semantics
+
+When attempt `N` returns `bailed` and `N == recovery-budget`:
+
+- Flow terminal state: `budget-exhausted`.
+- For each unresolved `bail_error`, main appends a bug block to `Bugs.md` with `kind: observation-exhausted`. The block includes the full attempt log, every repair action tried, and every error returned.
+- Main appends `flow-terminal` to `Log.md` with reason `budget-exhausted`.
+- Main proceeds to scrub + next flow. **Mission does not halt** — one budget-exhausted flow does not block others.
+
+Exception: if the compose-build subagent's own budget exhausts mid-recovery, main halts the entire mission with `mission_halted { reason: compose-build-exhausted }`. This is the only mission-halt path during `flow-execute`.
+
+### Stack-Recycle Caveat
+
+A full stack recycle (`down -v && up -d`) wipes all state including prior-flow state. Bug entries are immutable and remain in `Bugs.md`, but the deterministic-reproduction guarantee weakens for prior bugs: "scrub + run this flow" only holds if stack composition hasn't changed since the bug was filed. Main records this in `Result.md → Caveats` whenever a `stack-recycle` event occurs.
+
+## Scrub Between Flow Attempts
+
+Scrub = the cleanup pass that resets shared deps to a clean baseline. Runs **before every flow attempt** (first dispatch and every re-dispatch).
+
+Without scrub, prior-flow state contaminates the next flow's preconditions. Example: flow A inserts an `owner` row; flow B's HAPPY scenario asserts "GET /owners returns an empty list" — fails because of A's leftover, not a real bug. Scrub eliminates that interference.
+
+### Per-Tag Scrub Actions
+
+Derived from the upcoming flow's external-dep tag set plus any tags touched by prior flows since the last full reset:
+
+| Tag kind | Scrub action |
+|---|---|
+| `kafka:produce:<topic>` / `kafka:consume:<topic>` | Reset consumer-group offsets on the topic; optionally delete + recreate if marked destructive by the plan. |
+| `redis:write:<prefix>` / `redis:read:<prefix>` | `redis-cli --scan --pattern <prefix>* \| xargs redis-cli del`. |
+| `sql:write:<table>` / `sql:read:<table>` | `TRUNCATE TABLE <table> CASCADE`; if init has not run, re-run it. |
+| `s3:write:<bucket>[/<prefix>]` | `mc rm --recursive --force <alias>/<bucket>/<prefix>`. |
+| `sqs:produce:<queue>` / `sqs:consume:<queue>` | Purge queue (e.g., `aws sqs purge-queue` against localstack). |
+| `http:server:<…>` / `http:client:<…>` | No-op (no persistent state). |
+| `grpc:server:<…>` / `grpc:client:<…>` | No-op. |
+| `cron:<…>` | No-op (cron entrypoint invoked directly inside the test). |
+
+### Scrub Execution
+
+Runs inside the runner via `docker compose exec -T runner sh -c '<scrub-script>'`. Main composes the script from the flow's tag set; appends `scrub-started` and `scrub-completed` events to `Log.md`.
+
+### Scrub Failure
+
+If scrub fails (psql can't reach postgres, redis-cli times out, etc.) → main treats it as a stack-level infra problem and enters the recovery cycle on behalf of the upcoming flow's first attempt. Scrub does not have its own budget; it consumes the flow's `recovery-budget`.
