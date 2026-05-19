@@ -12,6 +12,7 @@ Plugin name: `yd`. Marketplace name: `yd`.
 - `duo-prod-ready` - production-readiness refactoring; WRITES CODE; modifies tree, runs build+test, commits per cycle.
 - `duo-research` - research deliverable convergence with central web access; output `Duo/Research-<slug>/Result.md`.
 - `duo-review` - branch / PR / diff code-review convergence; read-only; output `Duo/Review-<slug>/Result.md`.
+- `duo-testplan-build` - symmetric Claude+Codex authoring of an e2e test plan tree for multi-repo workspaces; 8-phase pipeline with per-service / per-flow streaming; outputs `Duo/TestPlan-<slug>/Result.md` plus `test-plan/<repo>/<svc>/flows/<flow>.md` and `test-plan/cross-app/flows/<flow>.md`.
 
 All trigger only on the explicit `duo` keyword.
 
@@ -41,6 +42,7 @@ yd-skills/
     duo-prod-ready/references/categories.md
     duo-research/SKILL.md
     duo-review/SKILL.md
+    duo-testplan-build/SKILL.md
   AGENTS.md              # this file (Codex repo context)
   CLAUDE.md              # Claude Code repo context
   LICENSE

@@ -6,7 +6,7 @@ Plugin name: `yd`. Marketplace name: `yd`.
 
 ## Skills shipped
 
-- `duo-design`, `duo-discuss`, `duo-forge`, `duo-prod-ready`, `duo-research`, `duo-review`.
+- `duo-design`, `duo-discuss`, `duo-forge`, `duo-prod-ready`, `duo-research`, `duo-review`, `duo-testplan-build`.
 
 All trigger only on the explicit `duo` keyword. Each skill dispatches a second `codex` agent in the background and converges on a result artifact under `Duo/<MissionKind>-<slug>/Result.md`.
 

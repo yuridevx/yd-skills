@@ -4,7 +4,7 @@ Dual-target plugin: ships the same `duo-*` skill set to Claude Code and Codex CL
 
 ## What you get
 
-Six skills for symmetric Claude+Codex convergence. Each one dispatches a parallel `codex` agent and writes a converged artifact under `Duo/<MissionKind>-<slug>/Result.md` in the working repo.
+Seven skills for symmetric Claude+Codex convergence. Each one dispatches a parallel `codex` agent and writes a converged artifact under `Duo/<MissionKind>-<slug>/Result.md` in the working repo.
 
 | Skill | Output | Writes code? |
 |---|---|---|
@@ -14,6 +14,7 @@ Six skills for symmetric Claude+Codex convergence. Each one dispatches a paralle
 | `duo-prod-ready` | per-cycle commits on the working branch | YES |
 | `duo-research` | `Duo/Research-<slug>/Result.md` | no |
 | `duo-review` | `Duo/Review-<slug>/Result.md` | no |
+| `duo-testplan-build` | `Duo/TestPlan-<slug>/Result.md` + `test-plan/<repo>/<svc>/flows/<flow>.md` tree | no (writes test plan markdown only) |
 
 All trigger only on the explicit `duo` keyword (e.g. `duo design X`, `duo-review X`, `/duo-prod-ready <scope>`). None auto-activate on plain `design X` / `review X` phrasing.
 

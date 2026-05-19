@@ -1,7 +1,7 @@
 {
   "name": "yd",
-  "version": "0.1.0",
-  "description": "Duo skills: symmetric Claude+Codex convergence (design, discuss, forge, prod-ready, research, review).",
+  "version": "0.2.0",
+  "description": "Duo skills: symmetric Claude+Codex convergence (design, discuss, forge, prod-ready, research, review, testplan-build).",
   "author": {
     "name": "Yurii Denysenko",
     "email": "yuridevx@gmail.com",
