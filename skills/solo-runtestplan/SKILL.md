@@ -447,3 +447,177 @@ Runs inside the runner via `docker compose exec -T runner sh -c '<scrub-script>'
 ### Scrub Failure
 
 If scrub fails (psql can't reach postgres, redis-cli times out, etc.) → main treats it as a stack-level infra problem and enters the recovery cycle on behalf of the upcoming flow's first attempt. Scrub does not have its own budget; it consumes the flow's `recovery-budget`.
+
+## Ledger and Report Formats
+
+Three visible files at mission root: `Bugs.md`, `Log.md`, `Result.md`. `Bugs.md` and `Log.md` are append-only ledgers maintained in-stream by per-flow subagents and main. `Result.md` is single-write at the end of `result`.
+
+### Bugs.md
+
+Append-only bug ledger. Entries added by per-flow subagents (`kind: assertion-contradicted`) and by main (`kind: observation-exhausted` on budget-exhausted flows). Bug numbers assigned in append order; an entry's number does not imply priority.
+
+Header (written once during `plan-aggregate`):
+
+```markdown
+# Bugs — <slug>
+
+This is an append-only ledger. Each entry below is a self-contained, immutable
+bug block. Entries are added by per-flow subagents as `assertion-contradicted`
+bugs and by main as `observation-exhausted` bugs (budget-exhausted flows). Bug
+numbers are assigned in append order; an entry's number does not imply
+priority.
+
+---
+```
+
+Per-entry block (template, verbatim shape):
+
+````markdown
+## Bug <NNN> — <flow-id> · <scenario-name> · <kind>
+
+- **Tree:** <tree-tag>
+- **Flow:** <flow-id>  (Entry: <file>:<line>)
+- **Scenario:** <name> (HAPPY|NEGATIVE)
+- **Kind:** assertion-contradicted | observation-exhausted
+- **Attempt:** <N>
+- **Reporting unit:** <unit_key>
+- **Timestamp:** <ISO 8601 UTC>
+
+**Expected**
+> <verbatim quote from the flow page's Expected: block>
+
+**Observed**
+> <verbatim or summarized CLI evidence>
+
+**Repro**
+```sh
+# Scrub commands run before this attempt
+<scrub line 1>
+# Scenario commands
+<cmd 1>
+```
+
+**Evidence**
+```text
+<stdout, stderr, exit codes, container log tails — fenced verbatim>
+```
+
+**Source ref**
+- <file>:<line>  (Entry)
+- <file>:<line>  (Code refs from the flow page)
+
+**Recovery attempts** (only for `observation-exhausted` kind)
+- <repair-r01 summary>
+- ...
+
+---
+````
+
+Bug numbers are 3-digit zero-padded (`Bug 001`, `Bug 002`, …). Assigned by counting existing `## Bug ` headings before append. Duplicate FAILs across re-dispatches each append a new entry — the duplication itself is information (the bug reproduced); `Result.md`'s coverage matrix deduplicates for summary counts.
+
+### Log.md
+
+Append-only event ledger. Every entry has a timestamp, unit key, event kind, and an actor, plus a one-line summary and an optional fenced details block. Reading top-to-bottom is the chronological trace of the mission.
+
+Header (written once):
+
+```markdown
+# Log — <slug>
+
+Append-only event ledger. Every entry has a timestamp, unit key, event kind,
+and an actor, plus a one-line summary and an optional fenced details block.
+Reading top-to-bottom is the chronological trace of the mission.
+
+---
+```
+
+Per-event block:
+
+````markdown
+### <ISO 8601 UTC> · <unit_key> · <event-kind> · <actor>
+<one-line summary>
+
+```<lang-or-empty>
+<optional structured details: command run, stdout excerpt, error trace>
+```
+````
+
+Event kind vocabulary (closed set):
+
+| Event | Actor | When |
+|---|---|---|
+| `phase-start` / `phase-complete` | main | Per phase entry/exit |
+| `stack-up` / `stack-healthy` / `stack-recycle` | main | Stack lifecycle |
+| `flow-dispatched` / `flow-redispatched` / `flow-terminal` | main | Per-flow lifecycle |
+| `scrub-started` / `scrub-completed` | main | Around per-attempt scrub |
+| `scenario-pass` / `scenario-fail` / `scenario-skipped` / `scenario-skipped-by-bail` | subagent | Per scenario |
+| `recovery-started` / `recovery-action` / `recovery-completed` | main \| subagent | Recovery cycle |
+| `compose-validation-failed` / `compose-build-redispatched` | main | Compose-build re-dispatch path |
+| `mission-halted` | main | Hard failure |
+
+### Result.md
+
+Single-write end-of-mission summary, ~200-400 lines max. Written once by main at the end of `result`.
+
+```markdown
+# Run Result — <slug>
+
+## Summary
+- Trees queued: <N> (<list>)
+- Flows planned: <total>
+- Flows executed: <total>  (PASS-all <n>, mixed <n>, FAIL-all <n>, budget-exhausted <n>)
+- Scenarios: total <T>, PASS <P>, FAIL <F>, SKIPPED <S>, SKIPPED-BY-BAIL <SB>
+- Bugs filed: <N>  (assertion-contradicted <n>, observation-exhausted <n>)
+- Mission state: complete | halted-at-<phase>
+
+## Pointers
+- [Bugs.md](Bugs.md) — <N> entries
+- [Log.md](Log.md) — chronological trace
+- [compose.yaml](compose.yaml)
+- [compose.runner.Dockerfile](compose.runner.Dockerfile)
+
+## Coverage Matrix
+| Tree | Flow | Scenario | Outcome | Bug# | Attempts | Recovery cycles |
+|---|---|---|---|---|---|---|
+| ... one row per (tree, flow, scenario) ... |
+
+## Recovery-Exhausted Flows
+- <flow-id> — <unit_key> — <N> repair cycles — final bail kinds: <list> — bug entries: <list of #s>
+
+## Caveats
+- <e.g., "Stack was recycled once during mission; bugs filed before <timestamp> may not reproduce against the post-recycle stack composition.">
+- <e.g., "Compose-build re-dispatched 2 times before stack became healthy.">
+
+## Unresolved
+- Cross-cutting issues not tied to a single flow.
+```
+
+### Append Safety
+
+Strict sequential per-flow execution means at most one subagent appends at any time. Main appends between dispatches. Each appender writes a full block via a single atomic file append (one OS write, terminated with `\n---\n` separator). No file locking required at v1.
+
+## Journal Events (.solo-run/journal.jsonl)
+
+Main-only writes. Mirrors `solo-testplan`'s shape.
+
+| Event | Fields | When |
+|---|---|---|
+| `phase_start` | `phase`, `ts` | Before each phase |
+| `subagent_spawn` | `phase`, `unit_key`, `role` (`author` \| `attempt`), `attempt`, `expected_output_path` | Before each subagent dispatch |
+| `artifact_accepted` | `path`, `status` | After validating output |
+| `artifact_rejected` | `path`, `reason` | After rejecting malformed output |
+| `attempt_complete` | `unit_key`, `attempt`, `state`, `bail_error_count` | After per-flow attempt |
+| `recovery_cycle` | `unit_key`, `cycle`, `actions[]` | After each main-side recovery cycle |
+| `flow_terminal` | `unit_key`, `final_state`, `attempts_used`, `cycles_used` | At flow terminal |
+| `stack_up` / `stack_healthy` / `stack_recycle` | `ts` | Stack lifecycle |
+| `compose_build_redispatch` | `attempt`, `reason` | When main re-dispatches compose-build |
+| `phase_complete` | `phase`, `counts` | At phase exit |
+| `mission_halted` | `reason` | On fatal failure |
+
+### Resumability
+
+On harness restart with the same slug, main reads `journal.jsonl` tail:
+
+- Last event `phase_start` without `phase_complete` → resume that phase.
+- Last event `subagent_spawn` without `attempt_complete` → re-spawn the same attempt (output paths deterministic; subagents are fresh-context).
+- Last event `recovery_cycle` without subsequent `subagent_spawn` → re-dispatch the next attempt.
