@@ -2,14 +2,14 @@
   "name": "yd",
   "interface": {
     "displayName": "yd skills",
-    "shortDescription": "Duo Claude+Codex convergence skills + linked-testplan rulebook"
+    "shortDescription": "Duo Claude+Codex convergence skills + solo-testplan (Claude-only) + linked-testplan rulebook"
   },
   "plugins": [
     {
       "name": "yd",
       "source": { "path": "./" },
       "category": "agents",
-      "description": "Duo skills (design, discuss, forge, prod-ready, research, review, testplan) for symmetric Claude+Codex convergence, plus the linked-testplan rulebook and scripts/check-refs.py validator used by duo-testplan."
+      "description": "Duo skills (design, discuss, forge, prod-ready, research, review, testplan) for symmetric Claude+Codex convergence, plus solo-testplan (Claude-only counterpart producing the same e2e test plan tree), the linked-testplan rulebook, and scripts/check-refs.py validator used by both testplan skills."
     }
   ]
 }

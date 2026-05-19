@@ -16,15 +16,19 @@ Duo skills (all trigger only on explicit `duo` keyword):
 - `duo-review` - branch / PR / diff code-review convergence; read-only; output `Duo/Review-<slug>/Result.md`.
 - `duo-testplan` - symmetric Claude+Codex authoring of an e2e test plan tree for multi-repo workspaces; 6-phase pipeline (P1a scope file discovery, P1b per-service scope, P2 local flow refinement, P3 cross-app discovery, P4 cross-app flow refinement, P5 result + check-refs.py) with per-unit duo author + step-by-step structured diff convergence (first-AGREED-pair per field); each unit owned by a per-unit Claude subagent that resumes a single codex session across rounds; consumes the linked-testplan rulebook AS IS; outputs `Duo/TestPlan-<slug>/Result.md` plus `test-plan/<repo>/<svc>/flows/<flow>.md` and `test-plan/cross-app/flows/<flow>.md`.
 
-Rulebook skill (passive; loaded by orchestrator or by explicit reference, NOT triggered on `duo`):
+Solo skill (Claude-only counterpart to `duo-testplan`; triggers only on explicit `solo` keyword, not `duo`):
+
+- `solo-testplan` - Claude-only authoring of the same e2e test plan tree as `duo-testplan`; no codex peer. Five named phases (service-scope, local-flows, cross-app-survey, cross-app-flows, result). Each unit lives in its own subfolder under `.solo/<phase>/<unit-key>/` and runs as a chain of independent fresh-context subagent dispatches - one Author round followed by Refinement rounds. Each refinement reads every prior `Author-r*.md` and `Refine-r*.md` and emits substance-only field diffs; editorial edits (reword, polish, reorder, hedge, layout) are forbidden. Refinement terminates at first `substantial_diff_count: 0` round (CLEAN) or at round cap (CAPPED with `[unresolved:]` tags). Mechanical work - repo/service enumeration and cross-app producer/consumer reconciliation - lives in the main session. Streaming handoff: `local-flows` for a service spawn the moment its `service-scope` commits; `cross-app-flows` for a cflow spawn the moment both `local-flows` sides commit. Only one hard barrier (all flow units terminal -> result). Outputs `Solo/TestPlan-<slug>/Result.md` plus the same `test-plan/<repo>/<svc>/flows/<flow>.md` and `test-plan/cross-app/flows/<flow>.md` tree as duo. Consumes the linked-testplan rulebook AS IS. Triggers only on `solo testplan X`, `solo-testplan X`, `/solo-testplan X`, or `solo build a test plan for X`.
+
+Rulebook skill (passive; loaded by orchestrator or by explicit reference, NOT triggered on `duo` or `solo`):
 
 - `linked-testplan` - rulebook for the e2e test plan page shape, coverage vocabulary, scenario policy, mocks policy, and 21-rule refinement checklist. Loaded by `duo-testplan` orchestrator-dispatched agents. Standalone activation only on explicit `apply linked-testplan rules to X` prose.
 
 ## Runtime requirements
 
-- `codex` on PATH (the OpenAI Codex CLI binary) for every duo skill - it dispatches a second codex agent in the background.
-- Codex is pinned to model `gpt-5.5`, reasoning level `xhigh`, yolo / `--dangerously-bypass-approvals-and-sandbox`. Web search is `live` for most skills; `duo-testplan` defaults web search OFF (source code is the only ground truth) — flip to `live` with the `web-allowed` prose modifier when external contract specs are needed.
-- Git working tree at the repo where the convergence runs (skills write to `Duo/` under the current repo).
+- `codex` on PATH (the OpenAI Codex CLI binary) for every duo skill - it dispatches a second codex agent in the background. `solo-testplan` does NOT require `codex` — it is Claude-only.
+- Codex is pinned to model `gpt-5.5`, reasoning level `xhigh`, yolo / `--dangerously-bypass-approvals-and-sandbox`. Web search is `live` for most skills; `duo-testplan` and `solo-testplan` default web search OFF (source code is the only ground truth) — flip to `live` with the `web-allowed` prose modifier when external contract specs are needed.
+- Git working tree at the repo where the convergence runs (duo skills write to `Duo/` under the current repo; `solo-testplan` writes to `Solo/`).
 
 ## Repo layout
 
@@ -47,6 +51,7 @@ yd-skills/
     duo-research/SKILL.md
     duo-review/SKILL.md
     duo-testplan/SKILL.md
+    solo-testplan/SKILL.md
     linked-testplan/SKILL.md
     linked-testplan/references/page-shape.md
     linked-testplan/references/checklist-21.md

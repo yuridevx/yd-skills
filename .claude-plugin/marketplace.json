@@ -6,16 +6,16 @@
     "url": "https://github.com/yuridevx"
   },
   "metadata": {
-    "description": "yd: duo skills for symmetric Claude+Codex convergence",
-    "version": "0.5.0"
+    "description": "yd: duo skills for symmetric Claude+Codex convergence plus solo-testplan (Claude-only)",
+    "version": "0.6.0"
   },
   "plugins": [
     {
       "name": "yd",
       "source": "./",
-      "description": "Duo skills (design, discuss, forge, prod-ready, research, review, testplan) for symmetric Claude+Codex convergence, plus the linked-testplan rulebook and scripts/check-refs.py validator used by duo-testplan.",
+      "description": "Duo skills (design, discuss, forge, prod-ready, research, review, testplan) for symmetric Claude+Codex convergence, plus solo-testplan (Claude-only counterpart producing the same e2e test plan tree), the linked-testplan rulebook, and scripts/check-refs.py validator used by both testplan skills.",
       "category": "agents",
-      "keywords": ["duo", "codex", "convergence", "testplan", "rulebook"]
+      "keywords": ["duo", "solo", "codex", "convergence", "testplan", "rulebook"]
     }
   ]
 }

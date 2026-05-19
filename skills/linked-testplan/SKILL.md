@@ -1,19 +1,19 @@
 ---
 name: linked-testplan
-description: Rulebook for e2e flow-grain test plan authoring. Owns page shape, coverage vocabulary, scenario policy, mocks policy, and the 21-rule refinement checklist. Companion to the `duo-testplan` orchestrator, which loads this rulebook into every authoring and refinement agent. This is a PASSIVE rulebook, NOT an executor. Standalone activation only when prose explicitly references it - phrases like "apply linked-testplan rules to X", "linked-testplan checklist on X", "use linked-testplan rules". Does NOT auto-activate on plain "write tests" / "make a test plan" / "e2e plan" / "generate test cases" prose. Run the full pipeline via `duo-testplan`, not via this skill.
+description: Rulebook for e2e flow-grain test plan authoring. Owns page shape, coverage vocabulary, scenario policy, mocks policy, and the 21-rule refinement checklist. Companion to the `duo-testplan` (Claude+Codex) and `solo-testplan` (Claude-only) orchestrators, which both load this rulebook into every authoring and refinement agent. This is a PASSIVE rulebook, NOT an executor. Standalone activation only when prose explicitly references it - phrases like "apply linked-testplan rules to X", "linked-testplan checklist on X", "use linked-testplan rules". Does NOT auto-activate on plain "write tests" / "make a test plan" / "e2e plan" / "generate test cases" prose. Run the full pipeline via `duo-testplan` or `solo-testplan`, not via this skill.
 ---
 
 # Linked Testplan: Rulebook
 
 A structured approach for authoring e2e test plans from source code in multi-repo workspaces. Defines a uniform per-flow page shape, a coverage vocabulary, a scenario policy, a mocks policy, and a 21-rule refinement checklist that authoring and refinement agents enforce.
 
-This is the **rulebook**. The companion executor `duo-testplan` runs the full pipeline. Loading this skill standalone is for inline rule application — applying these rules to an existing draft, validating a single flow page against the checklist, or referencing the page shape during manual authoring.
+This is the **rulebook**. Two companion executors run the full pipeline against it: `duo-testplan` (symmetric Claude+Codex convergence) and `solo-testplan` (Claude-only authoring with independent fresh-context refinement subagents). Loading this skill standalone is for inline rule application — applying these rules to an existing draft, validating a single flow page against the checklist, or referencing the page shape during manual authoring.
 
 ## Activation
 
 Activate this skill when:
 
-1. The `duo-testplan` orchestrator dispatches a per-unit Claude subagent or codex session. The orchestrator resolves this rulebook's absolute path at its own activation (per `duo-testplan/SKILL.md` § Plugin Layout and Path Resolution) and passes that absolute path in every dispatched prompt so the agent can Read it regardless of its CWD.
+1. Either the `duo-testplan` or `solo-testplan` orchestrator dispatches a per-unit subagent (or, in duo's case, a codex session). Both orchestrators resolve this rulebook's absolute path at their own activation (per their respective `SKILL.md` § Plugin Layout and Path Resolution) and pass that absolute path in every dispatched prompt so the agent can Read it regardless of its CWD.
 2. The user's prose explicitly references the rulebook: `apply linked-testplan rules to X`, `check linked-testplan compliance`, `use linked-testplan checklist`, `lint with linked-testplan`. In this standalone path the Claude Code skill harness loads the rulebook directly — no path resolution needed.
 
 Do NOT activate this skill on:
@@ -160,11 +160,21 @@ See [references/checklist-21.md](references/checklist-21.md) for rationale, exam
 
 ## Refinement Workflow Context
 
-The `duo-testplan` orchestrator runs per-unit author + step-by-step structured diff convergence: R0 author, R1..N diff rounds, deterministic per-field merge until first-AGREED-pair or round cap. Each diff round:
+This rulebook is consumed by two refinement protocols. Both walk the 21-rule checklist against the prior-round artifact; they differ in how the round is structured.
+
+**`duo-testplan` protocol — per-unit two-peer convergence:** R0 author by both Claude and Codex, R1..N diff rounds with deterministic per-field merge until first-AGREED-pair or round cap. Each diff round:
 
 - Reads the prior-round merged fields + source code + this rulebook + the 21-rule checklist.
 - Emits a structured per-field diff (stance enum `keep | drop | replace | augment | dispute`) for each field.
 - Rule violations become `replace` / `augment` / `drop` stances; unfixable violations become `dispute` stances or Blocked entries.
+
+**`solo-testplan` protocol — per-unit chain of independent fresh-context subagent dispatches:** R0 Author subagent writes the artifact; R1..N Refinement subagents each receive a fresh context and read every prior `Author-r*.md` and `Refine-r*.md` of the unit. Each refinement round:
+
+- Reads the latest Author artifact + every prior Refine record + source code + this rulebook + the 21-rule checklist.
+- Emits a structured `Refine-r<k+1>.md` with field diffs whose `change_kind` is one of `missing | wrong | gap | citation-error | checklist-violation`. Editorial change kinds (reword, polish, reorder, hedge, layout) are forbidden — a round that would emit only editorial diffs must instead report `substantial_diff_count: 0` and terminate the unit `CLEAN`.
+- Applies the revisions to produce `Author-r<k+1>.md`. Rule violations the round cannot close at the cap are tagged inline `[unresolved: <field-id>: <reason>]` and the unit terminates `CAPPED`.
+
+The patch grammar below applies to both protocols. In duo, patches are merged across the two peers; in solo, patches are applied by the same refinement subagent that emitted them.
 
 Patches use this grammar:
 
