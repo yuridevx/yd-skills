@@ -126,3 +126,140 @@ Solo/RunTestPlan-<slug>/
 | `result` | `result` |
 
 Cross-app flows live in the same `flow-execute/` directory; only their CLI commands differ (multiple services as actors).
+
+## Pipeline
+
+Four descriptive phases, all hard-gated.
+
+| Phase | Role | Owner | Cardinality |
+|---|---|---|---|
+| `plan-aggregate` | Resolve input slugs/paths. Parse every test plan page. Build `run-manifest.json` cataloging flows, scenarios, external-dep tags across all queued trees. | Main session, mechanical | sequential, single execution |
+| `compose-build` | One subagent generates `compose.yaml` + `compose.runner.Dockerfile`. Main runs `docker compose build` + `up -d` + healthcheck-wait. Re-dispatch on validation / bring-up failure, bounded by `recovery-budget`. | Subagent for authoring; main for execution | sequential |
+| `flow-execute` | Per-flow subagents dispatched **strictly sequentially**. Each translates scenarios → CLI commands, runs inside the runner, observes, classifies, appends to `Bugs.md` / `Log.md`. Main scrubs stack state between attempts and drives main-side recovery on `bailed` returns. | Per-flow subagents + main scrub/recovery | strict sequential |
+| `result` | Main writes thin `Result.md` summary (counts, coverage matrix, recovery-exhausted flows, caveats). | Main only | sequential |
+
+### Gates
+
+Three hard barriers:
+
+1. `plan-aggregate` complete → `compose-build` may start.
+2. `compose-build` subagent terminal **and** main confirms stack health → `flow-execute` may start.
+3. All `flow-execute` units terminal → `result` may start.
+
+No streaming handoffs (unlike `solo-testplan`): strict sequential flow execution means there is no upstream/downstream overlap opportunity.
+
+## plan-aggregate Phase
+
+Main-only, sequential, one execution.
+
+1. Resolve each input source. Slug → `Solo/TestPlan-<slug>/` then `Duo/TestPlan-<slug>/`. Path → use as-is. Halt with clean error if any source is unresolvable.
+2. For each resolved tree, glob `test-plan/**/*.md`. Parse the linked-testplan page shape:
+   - `Trigger:`, `Entry:`, `Brief:` header.
+   - `## Scenarios` with HAPPY / NEGATIVE tagged blocks containing Preconditions, Steps, Expected, Mocks, Code refs.
+3. Detect SKIPPED-eligible scenarios up front:
+   - Any scenario whose page carries an `[unresolved:]` tag covering its assertions.
+   - Any scenario whose `Mocks:` line names an external the runner cannot stand up (e.g., a specific third-party SaaS not modeled by a generally-available image).
+
+   These are flagged in `run-manifest.json` with `skip_reason`. The per-flow subagent will append `scenario-skipped` to Log.md without executing them.
+4. Aggregate external-dep tags across trees. Multiple trees declaring `kafka:produce:owner-updated` collapse to one tag. Used by `compose-build` to size the stack.
+5. Commit `.solo-run/run-manifest.json` and `.solo-run/input-sources.json`. Append `phase_complete`.
+
+`run-manifest.json` shape:
+
+```json
+{
+  "trees": [
+    { "tree_tag": "Petclinic", "source_kind": "slug", "root": "/abs/path" }
+  ],
+  "flows": [
+    {
+      "unit_key": "flow-execute/Petclinic__post-owners",
+      "tree_tag": "Petclinic",
+      "flow_id": "post-owners",
+      "page_path": "/abs/path/test-plan/petclinic/customer/flows/post-owners.md",
+      "entry": { "file": "...", "line": 42 },
+      "external_deps": ["http:server:POST /api/owners", "sql:write:owners"],
+      "scenarios": [
+        { "name": "...", "tag": "HAPPY", "skip_reason": null },
+        { "name": "...", "tag": "NEGATIVE", "skip_reason": "[unresolved:] tag on Expected" }
+      ]
+    }
+  ],
+  "aggregated_external_deps": [
+    "kafka:produce:owner-updated", "redis:write:owner:cache:"
+  ]
+}
+```
+
+## compose-build Phase
+
+One subagent under `.solo-run/compose-build/` owns authoring of `compose.yaml` + `compose.runner.Dockerfile`. Main owns `docker compose build` + `up -d` + healthcheck-wait + re-dispatch on failure.
+
+### Subagent inputs
+
+Passed in the prompt:
+
+- `.solo-run/run-manifest.json` (aggregated services + external-dep tags).
+- Per-flow source root paths (resolved during `plan-aggregate`).
+- Workspace-walk seed — known build-config filenames to look for near each `Entry:`: `Dockerfile`, `docker-compose.yml` (read for reference only, not consumed wholesale), `package.json`, `pom.xml`, `build.gradle`, `go.mod`, `pyproject.toml`, `requirements.txt`, `Cargo.toml`, `*.csproj`.
+- Web access (always allowed) for image-tag and CLI-invocation lookups.
+- Hard generation rules (below).
+
+### Subagent outputs
+
+At the mission root:
+
+- `compose.yaml` — every service + the runner + a single internal bridge network.
+- `compose.runner.Dockerfile` — runner image build context.
+
+Under `.solo-run/compose-build/`:
+
+- `Author-rNN.md` — generation rationale per service (why this image, why this healthcheck, why this runner toolset).
+
+### Hard generation rules
+
+1. **No `ports:` mapping on any service.** Validated by main parsing the compose YAML.
+2. **One internal network** named `runtestplan-net`. Every service + the runner joins it.
+3. **Every service has a `healthcheck`** runnable inside its own container (no external curl). Generic patterns:
+   - HTTP server: `wget --spider http://localhost:<port>/health` or `curl -f` or `nc -z localhost <port>` as last-resort.
+   - Kafka broker: `kafka-broker-api-versions --bootstrap-server localhost:9092` or `nc -z`.
+   - Redis: `redis-cli ping`.
+   - Postgres: `pg_isready -U <user>`.
+   - MinIO / S3-compatible: `curl -f http://localhost:9000/minio/health/live`.
+   - Other kinds: documented in Author-rNN.md.
+4. **Image selection — generally-available only, no baked catalog.** Subagent picks at generation time:
+   - Docker Hub Official Images first: `postgres`, `redis`, `mongo`, `mysql`, `nginx`, `alpine`, `debian`.
+   - Kafka: `apache/kafka` (KRaft mode) preferred; `confluentinc/cp-kafka` acceptable.
+   - S3: `minio/minio`.
+   - Workspace services: build from their Dockerfile if one exists near the Entry path. If absent, emit as `compose-gap` blocker in Author-rNN.md → main re-dispatches with escalation (no fallback synthesis of Dockerfiles for workspace services).
+   - Pin to a specific tag (no `:latest`). Subagent web-checks tag existence before emitting.
+5. **External-dep tag → service mapping is one-to-many-acceptable.** Multiple kafka topics collapse to one broker; multiple redis prefixes collapse to one redis; multiple sql tables collapse to one postgres unless plans declare distinct databases by name.
+6. **Init / seed wiring.** Declarative seed via standard image conventions (`/docker-entrypoint-initdb.d/` for postgres, sidecar init for kafka, etc.) when possible. Non-declarative seeds deferred to runtime per-flow setup.
+
+### Runner image
+
+`compose.runner.Dockerfile`:
+
+- Base: alpine (default) or debian-slim if a tool requires it. Subagent picks based on toolset.
+- Tools at image-build time — union of CLI tools implied by aggregated external-dep tags + baseline (`curl`, `jq`, `wget`, `coreutils`). Mappings: kafka → `kcat`; redis → `redis`; sql → `postgresql-client`; s3 → `mc` or `awscli`; grpc → `grpcurl`.
+- Long-running command: `tail -f /dev/null`. Main `docker compose exec`s into it.
+- No host volume mounts.
+
+### Main's bring-up loop
+
+1. Dispatch subagent. Wait for completion notification (no polling).
+2. Validate on return:
+   - `compose.yaml` exists and `docker compose -f compose.yaml config` exits 0.
+   - No service declares `ports`.
+   - Every service has a `healthcheck`.
+   - `compose.runner.Dockerfile` exists and parses.
+3. On validation failure: append `compose-validation-failed` to `Log.md`; re-dispatch the subagent with the errors attached as a `Refine-rNN.md` analogue. Bounded by `recovery-budget` (default 5).
+4. On validation pass: `docker compose build` → `docker compose up -d` → poll healthchecks until all healthy (bounded wait, default 5 minutes). Append `stack-up` then `stack-healthy` events.
+5. Health-wait failure → re-dispatch with `docker compose logs <svc>` attached. Same budget.
+6. Compose-build budget exhausted → `mission_halted { reason: compose-build-exhausted }`. The only mission-halt path during normal operation.
+
+Compose-build terminal states:
+
+- `CLEAN` — stack healthy on first attempt.
+- `REPAIRED` — stack healthy after N re-dispatches (logged in Log.md).
+- `BLOCKED` — budget exhausted; mission halts.
