@@ -1,6 +1,6 @@
 {
   "name": "yd",
-  "version": "0.6.0",
+  "version": "0.6.1",
   "description": "Duo skills: symmetric Claude+Codex convergence (design, discuss, forge, prod-ready, research, review, testplan) plus solo-testplan (Claude-only counterpart producing the same e2e test plan tree), the linked-testplan rulebook, and scripts/check-refs.py validator used by both testplan skills.",
   "author": "Yurii Denysenko <yuridevx@gmail.com>",
   "homepage": "https://github.com/yuridevx/yd-skills",
