@@ -8,13 +8,13 @@ Plugin name: `yd`. Marketplace name: `yd`.
 
 Duo skills (all trigger only on explicit `duo` keyword; each dispatches a second `codex` agent in the background and converges on `Duo/<MissionKind>-<slug>/Result.md`):
 
-- `duo-design`, `duo-discuss`, `duo-forge`, `duo-prod-ready`, `duo-research`, `duo-review`, `duo-testplan-build`, `duo-testplan-converge`.
+- `duo-design`, `duo-discuss`, `duo-forge`, `duo-prod-ready`, `duo-research`, `duo-review`, `duo-testplan`.
 
-`duo-testplan-converge` is the per-unit duo author + step-by-step diff convergence variant of `duo-testplan-build` (6 phases vs 8; first-AGREED-pair per-field convergence vs union-merge + N-pass refinement; ~3-5x lower dispatch ceiling). Both ship in this plugin and coexist; users pick by workload character.
+`duo-testplan` is the per-unit duo author + step-by-step structured diff convergence skill for e2e test plan trees (6 phases; first-AGREED-pair per-field convergence; per-unit Claude subagent owns the convergence cycle and resumes a single codex session within the unit).
 
 Rulebook skill (passive; loaded by orchestrator or by explicit reference, NOT triggered on `duo`):
 
-- `linked-testplan` - rulebook for the e2e test plan page shape, coverage vocabulary, and 21-rule refinement checklist used by `duo-testplan-build` and `duo-testplan-converge`.
+- `linked-testplan` - rulebook for the e2e test plan page shape, coverage vocabulary, and 21-rule refinement checklist used by `duo-testplan`.
 
 ## Runtime requirements
 

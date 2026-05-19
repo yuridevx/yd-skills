@@ -7,13 +7,13 @@
   },
   "metadata": {
     "description": "yd: duo skills for symmetric Claude+Codex convergence",
-    "version": "0.4.0"
+    "version": "0.5.0"
   },
   "plugins": [
     {
       "name": "yd",
       "source": "./",
-      "description": "Duo skills (design, discuss, forge, prod-ready, research, review, testplan-build, testplan-converge) for symmetric Claude+Codex convergence, plus the linked-testplan rulebook and scripts/check-refs.py validator used by both testplan skills.",
+      "description": "Duo skills (design, discuss, forge, prod-ready, research, review, testplan) for symmetric Claude+Codex convergence, plus the linked-testplan rulebook and scripts/check-refs.py validator used by duo-testplan.",
       "category": "agents",
       "keywords": ["duo", "codex", "convergence", "testplan", "rulebook"]
     }

@@ -18,8 +18,7 @@ Two validation modes, both can run in one invocation:
    the 21-rule checklist (entrypoint exhaustiveness). Also flags duplicate
    entrypoint-to-flow mappings.
 
-Used by the duo-testplan-build orchestrator after every refinement patch batch
-to catch ref drift mechanically.
+Used by the duo-testplan orchestrator at P5 to catch ref drift mechanically.
 
 Usage:
     python3 scripts/check-refs.py <target-dir>

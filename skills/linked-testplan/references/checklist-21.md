@@ -237,4 +237,4 @@ For each rule:
 4. For each failing instance the pass cannot mechanically fix → emit a Blocked entry with rationale.
 5. After walking all rules, the pass writes Status (CLEAN if no patches/blocked; PATCHED if patches; BLOCKED if any Blocked entries).
 
-Patch merge order (from `duo-testplan-build/SKILL.md` Patch System): REMOVE → CORRECT-REF → ADD → STRENGTHEN → format-only. Validators run after each batch.
+Patch / diff-stance merge order (from `duo-testplan/SKILL.md` Per-Field Merge Table): REMOVE / `drop` → CORRECT-REF / `replace` → ADD / `augment` → STRENGTHEN → format-only. Validators run after each batch.

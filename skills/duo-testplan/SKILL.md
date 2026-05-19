@@ -1,9 +1,9 @@
 ---
-name: duo-testplan-converge
-description: Symmetric Claude+Codex convergent authoring of an e2e test plan tree for multi-repo workspaces using per-unit duo authoring plus step-by-step structured diff convergence. Six phases - P1a scope file discovery, P1b per-service scope, P2 local flow refinement, P3 cross-app discovery, P4 cross-app flow refinement, P5 result + check-refs.py. Each unit runs a per-unit Claude subagent that owns the convergence cycle and resumes one Codex session across all rounds inside that unit. Round cap is R0 plus four diff rounds by default; user can extend via `extended-convergence`. At cap with residual disputes the artifact commits with `[disputed: claude=..., codex=...]` tags and no separate resolver dispatch. Both peers author every unit, every phase. Code is the only source of truth; existing tests, READMEs, and documentation are excluded inputs. Consumes the `linked-testplan` rulebook AS IS. Produces `Duo/TestPlan-<slug>/Result.md` plus `test-plan/<repo>/<svc>/flows/<flow-id>.md` and `test-plan/cross-app/flows/<flow-id>.md`. Direct Codex CLI only; no /codex:rescue, no plugin internals, no shared helper skill. Pins gpt-5.5, model_reasoning_effort=xhigh, yolo, --json, --output-last-message, --skip-git-repo-check, and -C $CWD. Web search disabled by default; flip to live with `web-allowed`. Scripts run ONLY at P5 (`check-refs.py`), never in the LLM convergence loop. Supports autonomous mode with prose `autonomously`, `no questions`, `hands-free`, `auto`, or `unattended`; otherwise default mode allows one clarifying question max for USER-TIER blockers. TRIGGERS ONLY on explicit "duo" keyword - phrases like "duo testplan-converge X", "duo-testplan-converge X", "/duo-testplan-converge X", or "duo build a convergent test plan for X". Does NOT auto-activate on plain "test plan X", "e2e plan", or "generate tests for X".
+name: duo-testplan
+description: Symmetric Claude+Codex authoring of an e2e test plan tree for multi-repo workspaces using per-unit duo authoring plus step-by-step structured diff convergence. Six phases - P1a scope file discovery, P1b per-service scope, P2 local flow refinement, P3 cross-app discovery, P4 cross-app flow refinement, P5 result + check-refs.py. Each unit runs a per-unit Claude subagent that owns the convergence cycle and resumes one Codex session across all rounds inside that unit. Round cap is R0 plus four diff rounds by default; user can extend via `extended-convergence`. At cap with residual disputes the artifact commits with `[disputed: claude=..., codex=...]` tags and no separate resolver dispatch. Both peers author every unit, every phase. Code is the only source of truth; existing tests, READMEs, and documentation are excluded inputs. Consumes the `linked-testplan` rulebook AS IS. Produces `Duo/TestPlan-<slug>/Result.md` plus `test-plan/<repo>/<svc>/flows/<flow-id>.md` and `test-plan/cross-app/flows/<flow-id>.md`. Direct Codex CLI only; no /codex:rescue, no plugin internals, no shared helper skill. Pins gpt-5.5, model_reasoning_effort=xhigh, yolo, --json, --output-last-message, --skip-git-repo-check, and -C $CWD. Web search disabled by default; flip to live with `web-allowed`. Scripts run ONLY at P5 (`check-refs.py`), never in the LLM convergence loop. Supports autonomous mode with prose `autonomously`, `no questions`, `hands-free`, `auto`, or `unattended`; otherwise default mode allows one clarifying question max for USER-TIER blockers. TRIGGERS ONLY on explicit "duo" keyword - phrases like "duo testplan X", "duo-testplan X", "/duo-testplan X", or "duo build a test plan for X". Does NOT auto-activate on plain "test plan X", "e2e plan", or "generate tests for X".
 ---
 
-# Duo Testplan Converge
+# Duo Testplan
 
 Run a 6-phase, per-unit Claude+Codex convergence pipeline that writes an e2e test plan tree. Every phase uses the same unit protocol: both peers author, both peers diff by field, the per-unit Claude subagent deterministically merges resolved fields, and unresolved fields continue until first-AGREED-pair or the round cap.
 
@@ -17,10 +17,10 @@ Parse the user's prose as the only argument source. No CLI flags.
 
 Trigger only on explicit `duo` phrasing:
 
-- `duo testplan-converge X`
-- `duo-testplan-converge X`
-- `/duo-testplan-converge X`
-- `duo build a convergent test plan for X`
+- `duo testplan X`
+- `duo-testplan X`
+- `/duo-testplan X`
+- `duo build a test plan for X`
 
 Do not activate on plain `test plan X`, `e2e plan`, `generate tests for X`, or `write tests for X`.
 
@@ -202,8 +202,6 @@ Normalization is conservative: trim whitespace, normalize unordered-list orderin
 
 ## Codex Session Policy
 
-Deliberate deviation from `duo-testplan-build`:
-
 - Within a unit: Codex session is new at R0, then resumed for every diff round R1..N.
 - Across units: sessions never share. Each unit gets its own new Codex cold start at `.codex/session-<unit-key>`.
 - Across phases: sessions never share. If the same flow appears in P2 and P4, P4 still starts a new unit session.
@@ -355,7 +353,7 @@ Required env:
 
 - `CWD`: absolute target workspace.
 - `MISSION`: absolute `Duo/TestPlan-<slug>` folder.
-- `KIND`: `TestPlanConverge`.
+- `KIND`: `TestPlan`.
 - `UNIT_KEY`: path-safe stable unit key.
 - `ROUND`: unit-local round number starting at 0.
 - `PROMPT_FILE`: absolute prompt path.
@@ -367,7 +365,7 @@ set -u -o pipefail
 
 CWD="${CWD:?absolute cwd}"
 MISSION="${MISSION:?mission folder}"
-KIND="${KIND:?TestPlanConverge}"
+KIND="${KIND:?TestPlan}"
 UNIT_KEY="${UNIT_KEY:?path-safe unit identifier}"
 ROUND="${ROUND:?unit-local round number starting at 0}"
 PROMPT_FILE="${PROMPT_FILE:?absolute prompt path}"

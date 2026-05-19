@@ -1,19 +1,19 @@
 ---
 name: linked-testplan
-description: Rulebook for e2e flow-grain test plan authoring. Owns page shape, coverage vocabulary, scenario policy, mocks policy, and the 21-rule refinement checklist. Companion to the `duo-testplan-build` orchestrator, which loads this rulebook into every authoring and refinement agent. This is a PASSIVE rulebook, NOT an executor. Standalone activation only when prose explicitly references it - phrases like "apply linked-testplan rules to X", "linked-testplan checklist on X", "use linked-testplan rules". Does NOT auto-activate on plain "write tests" / "make a test plan" / "e2e plan" / "generate test cases" prose. Run the full pipeline via `duo-testplan-build`, not via this skill.
+description: Rulebook for e2e flow-grain test plan authoring. Owns page shape, coverage vocabulary, scenario policy, mocks policy, and the 21-rule refinement checklist. Companion to the `duo-testplan` orchestrator, which loads this rulebook into every authoring and refinement agent. This is a PASSIVE rulebook, NOT an executor. Standalone activation only when prose explicitly references it - phrases like "apply linked-testplan rules to X", "linked-testplan checklist on X", "use linked-testplan rules". Does NOT auto-activate on plain "write tests" / "make a test plan" / "e2e plan" / "generate test cases" prose. Run the full pipeline via `duo-testplan`, not via this skill.
 ---
 
 # Linked Testplan: Rulebook
 
 A structured approach for authoring e2e test plans from source code in multi-repo workspaces. Defines a uniform per-flow page shape, a coverage vocabulary, a scenario policy, a mocks policy, and a 21-rule refinement checklist that authoring and refinement agents enforce.
 
-This is the **rulebook**. The companion executor `duo-testplan-build` runs the full 8-phase pipeline. Loading this skill standalone is for inline rule application — applying these rules to an existing draft, validating a single flow page against the checklist, or referencing the page shape during manual authoring.
+This is the **rulebook**. The companion executor `duo-testplan` runs the full pipeline. Loading this skill standalone is for inline rule application — applying these rules to an existing draft, validating a single flow page against the checklist, or referencing the page shape during manual authoring.
 
 ## Activation
 
 Activate this skill when:
 
-1. The `duo-testplan-build` orchestrator dispatches an authoring or refinement agent. The orchestrator resolves this rulebook's absolute path at its own activation (per `duo-testplan-build/SKILL.md` § Plugin Layout and Path Resolution) and passes that absolute path in every dispatched prompt so the agent can Read it regardless of its CWD.
+1. The `duo-testplan` orchestrator dispatches a per-unit Claude subagent or codex session. The orchestrator resolves this rulebook's absolute path at its own activation (per `duo-testplan/SKILL.md` § Plugin Layout and Path Resolution) and passes that absolute path in every dispatched prompt so the agent can Read it regardless of its CWD.
 2. The user's prose explicitly references the rulebook: `apply linked-testplan rules to X`, `check linked-testplan compliance`, `use linked-testplan checklist`, `lint with linked-testplan`. In this standalone path the Claude Code skill harness loads the rulebook directly — no path resolution needed.
 
 Do NOT activate this skill on:
@@ -127,7 +127,7 @@ A cross-app flow spans two or more services in the workspace.
 
 ## The 21-Rule Refinement Checklist
 
-Every refinement pass (P3, P5, P7 in the `duo-testplan-build` pipeline) walks this checklist against the merged artifact. Each unchecked rule the pass can mechanically fix becomes a patch (`ADD-*` / `CORRECT-REF` / `STRENGTHEN` / `REMOVE-*`). Each unchecked rule the pass cannot fix becomes a Blocked entry.
+Every refinement round in the `duo-testplan` pipeline walks this checklist against the prior-round artifact. Each unchecked rule the round can mechanically fix becomes a structured edit (per-field diff stance `replace` / `augment` / `drop`, or equivalent patch op). Each unchecked rule the round cannot fix becomes a `dispute` stance or Blocked entry.
 
 ### Style and structure (10)
 
@@ -160,11 +160,11 @@ See [references/checklist-21.md](references/checklist-21.md) for rationale, exam
 
 ## Refinement Workflow Context
 
-The `duo-testplan-build` orchestrator runs three refinement phases (P3, P5, P7), each as an iteration loop of N parallel fresh-dispatch passes. Each pass:
+The `duo-testplan` orchestrator runs per-unit author + step-by-step structured diff convergence: R0 author, R1..N diff rounds, deterministic per-field merge until first-AGREED-pair or round cap. Each diff round:
 
-- Reads the merged artifact + source code + this rulebook + the 21-rule checklist.
-- Does NOT read prior authoring positions or prior pass files.
-- Walks every rule. Emits structured patches for fixable findings, Blocked entries for non-fixable findings.
+- Reads the prior-round merged fields + source code + this rulebook + the 21-rule checklist.
+- Emits a structured per-field diff (stance enum `keep | drop | replace | augment | dispute`) for each field.
+- Rule violations become `replace` / `augment` / `drop` stances; unfixable violations become `dispute` stances or Blocked entries.
 
 Patches use this grammar:
 
