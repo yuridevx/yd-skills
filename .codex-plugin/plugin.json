@@ -1,15 +1,15 @@
 {
   "name": "yd",
-  "version": "0.6.1",
-  "description": "Duo skills: symmetric Claude+Codex convergence (design, discuss, forge, prod-ready, research, review, testplan) plus solo-testplan (Claude-only counterpart producing the same e2e test plan tree), the linked-testplan rulebook, and scripts/check-refs.py validator used by both testplan skills.",
+  "version": "0.7.0",
+  "description": "Duo skills: symmetric Claude+Codex convergence (design, discuss, forge, prod-ready, research, review, testplan). Solo skills (Claude-only, explicit `solo` keyword): solo-testplan authors an e2e test plan tree; solo-runtestplan executes one or more test plan trees against a generated no-external-ports docker stack with append-only Bugs.md / Log.md ledgers and autonomous infra+observation recovery. linked-testplan is the shared rulebook for both testplan skills. scripts/check-refs.py validates flow-page references for solo-testplan / duo-testplan.",
   "author": "Yurii Denysenko <yuridevx@gmail.com>",
   "homepage": "https://github.com/yuridevx/yd-skills",
   "repository": "https://github.com/yuridevx/yd-skills",
   "license": "MIT",
-  "keywords": ["duo", "solo", "codex", "convergence", "agents", "testplan", "rulebook"],
+  "keywords": ["duo", "solo", "codex", "convergence", "agents", "testplan", "rulebook", "docker", "e2e"],
   "interface": {
     "displayName": "yd",
-    "shortDescription": "Duo Claude+Codex convergence skills + solo-testplan (Claude-only) + linked-testplan rulebook"
+    "shortDescription": "Duo Claude+Codex convergence skills + solo-testplan (authoring) + solo-runtestplan (execution) + linked-testplan rulebook"
   },
   "skills": "./skills"
 }
