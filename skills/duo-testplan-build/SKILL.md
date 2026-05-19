@@ -7,7 +7,22 @@ description: Symmetric Claude+Codex authoring of an e2e test plan tree for multi
 
 Run an 8-phase pipeline that produces an e2e test plan tree from source code. Every authoring phase pairs with a refinement phase: WRITE (Claude+Codex co-author, single round, orchestrator union-merges) then REFINE (N parallel FRESH-dispatch passes per iteration; iteration exits on all-CLEAN; no hard cap, soft warning at 3, escalation handshake at 5).
 
-The rulebook lives in the companion `linked-testplan` skill. Every dispatched authoring or refinement agent reads `skills/linked-testplan/SKILL.md` plus references for page shape, coverage vocabulary, and the 21-rule checklist. This skill is the executor; nothing here duplicates the rulebook.
+The rulebook lives in the companion `linked-testplan` skill. Every dispatched authoring or refinement agent reads the rulebook plus references for page shape, coverage vocabulary, and the 21-rule checklist. This skill is the executor; nothing here duplicates the rulebook.
+
+## Plugin Layout and Path Resolution
+
+This skill ships in the `yd` plugin alongside the `linked-testplan` rulebook (sibling skill) and `scripts/check-refs.py` (deterministic validator at the plugin root). The orchestrator's CWD is the mission target workspace, NOT the plugin install dir — so plugin-relative paths must be resolved to absolute paths before being passed to dispatched agents.
+
+**At skill activation, resolve once and reuse for the mission:**
+
+- `PLUGIN_ROOT` — derived from the skill's base directory (announced by the harness as "Base directory for this skill: ..."). Compute `PLUGIN_ROOT = <skill base>/../..`. For example, if the skill is at `C:\Users\<user>\.claude\plugins\cache\yd\yd\0.3.0\skills\duo-testplan-build`, then `PLUGIN_ROOT` is `C:\Users\<user>\.claude\plugins\cache\yd\yd\0.3.0`.
+- `RULEBOOK_ABS` = `$PLUGIN_ROOT/skills/linked-testplan/SKILL.md`
+- `RULEBOOK_REFS_ABS` = `$PLUGIN_ROOT/skills/linked-testplan/references/`
+- `CHECK_REFS_ABS` = `$PLUGIN_ROOT/scripts/check-refs.py`
+
+**Pass these ABSOLUTE paths in every dispatched prompt.** Task subagent prompts and codex stdin prompts both receive the absolute path; dispatched agents Read / Run them regardless of their CWD. Never instruct a dispatched agent to resolve `skills/...` or `scripts/...` relative to its own CWD — that fails because dispatched agents run in the user's workspace, not the plugin install dir.
+
+**Self-test on first run of a mission.** Before P1 writes any artifact, verify that `RULEBOOK_ABS` and `CHECK_REFS_ABS` exist and are readable. If either is missing, halt with a clear error pointing at the broken install. Do not attempt to continue with placeholder paths.
 
 ## When Invoked
 
@@ -91,7 +106,7 @@ Root contains only position files + merged artifacts + `Result.md` + `test-plan/
 Source code is the only ground truth. Existing tests, READMEs, and documentation are excluded inputs at every phase.
 
 1. Production source under each repo (per the exclusion set in P1 below).
-2. `linked-testplan` rulebook at `skills/linked-testplan/SKILL.md` plus references — every authoring and refinement agent reads it.
+2. `linked-testplan` rulebook (resolved as `$RULEBOOK_ABS` per Plugin Layout and Path Resolution above) — every authoring and refinement agent reads it.
 3. Mission journal at `.codex/journal.jsonl` for resume semantics.
 4. Prior position files within the mission — only the orchestrator reads them for control flow (Status header only); authoring agents see their own slice; refinement passes see ONLY the merged artifact, not authoring positions.
 5. Web access is OFF by default. The `web-allowed` prose modifier flips Codex to `web_search="live"` for cases where external contract specs (Avro schema registry, public API spec) are part of the source-of-truth. Claude `WebSearch` / `WebFetch` follow the same gate.
@@ -285,7 +300,7 @@ On `GATE-PASSED`, finalize `test-plan/<...>/<flow-id>.md`. On DEGRADED-CONTINUE,
 Orchestrator-only. Sequence:
 
 1. Read every finalized `test-plan/**/*.md` (terse by rulebook).
-2. Run `scripts/check-refs.py` over the full tree. The script lives at the repo root, NOT under the skill folder. From the orchestrator's `CWD` (the mission's workspace), the path resolves through the plugin install root: `<plugin-root>/scripts/check-refs.py`.
+2. Run `$CHECK_REFS_ABS` (resolved per Plugin Layout and Path Resolution above) over the full tree. Pass the absolute path to the Bash invocation, not the plugin-relative `scripts/check-refs.py` form, because the orchestrator's CWD is the user's workspace.
 3. Generate coverage matrix: every entrypoint in `unit-manifest.json` maps to exactly one flow OR one explicit "not externally observable" exclusion record.
 4. Write `Result.md`: summary, scope, per-repo summary, scenario counts, refinement-iteration counts per unit, DEGRADED-CONTINUE / BLOCKED units, coverage matrix, unresolved.
 5. Final sanity duo (single round): Claude scans `Result.md` + tree for cross-flow contradictions (incompatible payloads on same topic, conflicting expected outcomes for shared dependencies); Codex same. Disagreements log to `Unresolved`.
@@ -329,7 +344,7 @@ Merge key: `(target_kind, target_id, field, operation_family)`.
 1. Normalize artifact to AST (markdown is OUTPUT, NOT merge substrate).
 2. Group patches by merge key.
 3. Apply in deterministic order: **REMOVE → CORRECT-REF → ADD → STRENGTHEN → format-only**.
-4. Run validators after every batch (including `scripts/check-refs.py` from the plugin root).
+4. Run validators after every batch (including `$CHECK_REFS_ABS`).
 5. Re-emit markdown from AST.
 
 ### Conflict resolution
@@ -688,7 +703,7 @@ Before each dispatch:
 Before P8 finalization:
 
 1. Coverage matrix complete: every entrypoint maps to flow OR exclusion.
-2. `scripts/check-refs.py` (from plugin root) passes on the entire `test-plan/**/*.md` tree.
+2. `$CHECK_REFS_ABS` (absolute path resolved at activation) passes on the entire `test-plan/**/*.md` tree.
 3. Late-gap queue empty.
 4. No artifact in the mission folder has `Status: INCONCLUSIVE` or `Status: INVALID` without a downstream peer-attested resolution.
 5. All open `phase_start` journal events have corresponding `phase_complete` records.

@@ -13,8 +13,8 @@ This is the **rulebook**. The companion executor `duo-testplan-build` runs the f
 
 Activate this skill when:
 
-1. The `duo-testplan-build` orchestrator dispatches an authoring or refinement agent — every such agent loads `skills/linked-testplan/SKILL.md` plus relevant references.
-2. The user's prose explicitly references the rulebook: `apply linked-testplan rules to X`, `check linked-testplan compliance`, `use linked-testplan checklist`, `lint with linked-testplan`.
+1. The `duo-testplan-build` orchestrator dispatches an authoring or refinement agent. The orchestrator resolves this rulebook's absolute path at its own activation (per `duo-testplan-build/SKILL.md` § Plugin Layout and Path Resolution) and passes that absolute path in every dispatched prompt so the agent can Read it regardless of its CWD.
+2. The user's prose explicitly references the rulebook: `apply linked-testplan rules to X`, `check linked-testplan compliance`, `use linked-testplan checklist`, `lint with linked-testplan`. In this standalone path the Claude Code skill harness loads the rulebook directly — no path resolution needed.
 
 Do NOT activate this skill on:
 - Plain `write tests` / `make a test plan` / `e2e plan` / `generate test cases` / `test the flow X` / `add tests for X`.
