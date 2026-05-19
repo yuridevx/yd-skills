@@ -13,7 +13,7 @@
     {
       "name": "yd",
       "source": "./",
-      "description": "Duo skills (design, discuss, forge, prod-ready, research, review, testplan-build) for symmetric Claude+Codex convergence.",
+      "description": "Duo skills (design, discuss, forge, prod-ready, research, review, testplan-build) for symmetric Claude+Codex convergence, plus the linked-testplan rulebook used by duo-testplan-build.",
       "category": "agents",
       "keywords": ["duo", "codex", "convergence"]
     }

@@ -6,9 +6,13 @@ Plugin name: `yd`. Marketplace name: `yd`.
 
 ## Skills shipped
 
+Duo skills (all trigger only on explicit `duo` keyword; each dispatches a second `codex` agent in the background and converges on `Duo/<MissionKind>-<slug>/Result.md`):
+
 - `duo-design`, `duo-discuss`, `duo-forge`, `duo-prod-ready`, `duo-research`, `duo-review`, `duo-testplan-build`.
 
-All trigger only on the explicit `duo` keyword. Each skill dispatches a second `codex` agent in the background and converges on a result artifact under `Duo/<MissionKind>-<slug>/Result.md`.
+Rulebook skill (passive; loaded by orchestrator or by explicit reference, NOT triggered on `duo`):
+
+- `linked-testplan` - rulebook for the e2e test plan page shape, coverage vocabulary, and 21-rule refinement checklist used by `duo-testplan-build`.
 
 ## Runtime requirements
 

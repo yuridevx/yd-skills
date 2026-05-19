@@ -123,15 +123,49 @@ P8  Result                            orchestrator + final sanity duo + late-gap
 
 Orchestrator-only. Records source roots and entrypoint probes; does NOT claim file completeness.
 
-Steps:
-- Parse prose for repo filter, autonomous flag, concurrency, refine-passes, extended-budget, web-allowed.
-- Enumerate target repos: each immediate subdir of cwd containing `.git/`, or cwd itself if a single repo.
-- Glob production source per the exclusion set above; classify per `apps/<svc>/` vs `_common`.
-- Probe entry-point surfaces per service: HTTP controllers, Kafka producers/consumers, gRPC servers/clients, cron / scheduled jobs, S3/DDB/SQL/Redis access points.
-- Mint stable per-service unit IDs.
-- Estimate dispatch budget (see "Concurrency, Budget, Ceilings").
-- Write `.codex/unit-manifest.json`, `.codex/dispatch-budget.json`.
-- Append `phase_start` journal events. `TodoWrite` one entry per P2 unit; P3/P6/P7 entries appended as upstream units complete.
+Steps (in journal-correct order — pre-write records ALWAYS precede their writes):
+
+1. Parse prose for repo filter, autonomous flag, concurrency, refine-passes, extended-budget, web-allowed.
+2. Initialize `.codex/journal.jsonl` (create if missing). Append `phase_start` event for P1.
+3. Enumerate target repos: each immediate subdir of cwd containing `.git/`, or cwd itself if a single repo.
+4. Glob production source per the exclusion set above; classify per `apps/<svc>/` vs `_common`.
+5. Probe entry-point surfaces per service: HTTP controllers, Kafka producers/consumers, gRPC servers/clients, cron / scheduled jobs, S3/DDB/SQL/Redis access points.
+6. **Mint stable IDs:**
+   - Per-service unit IDs from `<repo>/<service-dir-name>`.
+   - **Per-entrypoint flow IDs derived from trigger + entry symbol** (e.g. `post-owners`, `consume-petclinic-owner-updated`, `cron-cleanup-stale-sessions`). Flow IDs are stable across runs; same code → same ID. Stored per entrypoint in the manifest so P2 and P6 prompts consume them directly rather than minting ad-hoc.
+7. Estimate dispatch budget (see "Concurrency, Budget, Ceilings").
+8. Append `dispatch_start` for the upcoming manifest/budget writes.
+9. Write `.codex/unit-manifest.json` and `.codex/dispatch-budget.json`.
+10. Append `artifact_accepted` events for each just-written file.
+11. Append `phase_complete` event for P1.
+12. `TodoWrite` one entry per P2 unit; P3/P6/P7 entries appended as upstream units complete.
+
+`.codex/unit-manifest.json` shape (the orchestrator and every dispatched agent consume this):
+
+```json
+{
+  "schema_version": 1,
+  "repos": {
+    "<repo>": {
+      "services": {
+        "<service-id>": {
+          "candidate_roots": ["<path>", ...],
+          "entrypoints": [
+            {
+              "flow_id": "post-owners",
+              "trigger": "HTTP POST /owners",
+              "entry_file": "<path>",
+              "entry_line": <int>,
+              "trigger_kind": "http | kafka-consumer | kafka-producer | grpc | cron | s3 | other"
+            }
+          ]
+        }
+      },
+      "_common": { "candidate_roots": [...], "entrypoints": [...] }
+    }
+  }
+}
+```
 
 The manifest is the once-globbed inventory both peers consume in P2. Each peer may ADD relevant files; neither may REMOVE.
 
@@ -222,11 +256,11 @@ P5 passes may emit `LATE-SERVICE-GAP` patches when cross-app synthesis discovers
 - Enqueues required downstream P6/P7 work for the gap.
 - Does NOT invalidate finalized flows on other services or finalized cross-app flows that don't touch the gap.
 
-On `GATE-PASSED`, downstream P6 cross-app flows fire.
+On `GATE-PASSED` OR `DEGRADED-CONTINUE`, downstream P6 cross-app flows fire (DEGRADED-CONTINUE cross-app artifact carries `## Unresolved` into the cross-app flow plans). On `BLOCKED`, cross-app P6 does NOT fire; cross-app is summarized only in `Result.md`.
 
 ### Phase 6 — Test plan write per-flow (WRITE)
 
-**Streaming dispatch.** The instant a per-service P3 emits `local_flows_ready` (or terminates DEGRADED-CONTINUE / BLOCKED), dispatch one duo per flow that service owns. Cross-app flows fire on P5 `GATE-PASSED`.
+**Streaming dispatch.** The instant a per-service P3 emits `local_flows_ready` OR terminates `DEGRADED-CONTINUE`, dispatch one duo per flow that service owns. Services that terminate `BLOCKED` do NOT trigger P6 dispatch (per Failure Modes — BLOCKED units are summarized only in `Result.md`). Cross-app flows fire on P5 `GATE-PASSED` (or `DEGRADED-CONTINUE`; not on `BLOCKED`).
 
 Each per-flow duo: Claude Task subagent + Codex session, single round, both author against the flow's gate-resolved extraction record + source roots + rulebook. Each writes:
 
@@ -251,7 +285,7 @@ On `GATE-PASSED`, finalize `test-plan/<...>/<flow-id>.md`. On DEGRADED-CONTINUE,
 Orchestrator-only. Sequence:
 
 1. Read every finalized `test-plan/**/*.md` (terse by rulebook).
-2. Run `scripts/check-refs.py` over the full tree.
+2. Run `scripts/check-refs.py` over the full tree. The script lives at the repo root, NOT under the skill folder. From the orchestrator's `CWD` (the mission's workspace), the path resolves through the plugin install root: `<plugin-root>/scripts/check-refs.py`.
 3. Generate coverage matrix: every entrypoint in `unit-manifest.json` maps to exactly one flow OR one explicit "not externally observable" exclusion record.
 4. Write `Result.md`: summary, scope, per-repo summary, scenario counts, refinement-iteration counts per unit, DEGRADED-CONTINUE / BLOCKED units, coverage matrix, unresolved.
 5. Final sanity duo (single round): Claude scans `Result.md` + tree for cross-flow contradictions (incompatible payloads on same topic, conflicting expected outcomes for shared dependencies); Codex same. Disagreements log to `Unresolved`.
@@ -295,7 +329,7 @@ Merge key: `(target_kind, target_id, field, operation_family)`.
 1. Normalize artifact to AST (markdown is OUTPUT, NOT merge substrate).
 2. Group patches by merge key.
 3. Apply in deterministic order: **REMOVE → CORRECT-REF → ADD → STRENGTHEN → format-only**.
-4. Run validators after every batch (including `scripts/check-refs.py`).
+4. Run validators after every batch (including `scripts/check-refs.py` from the plugin root).
 5. Re-emit markdown from AST.
 
 ### Conflict resolution
@@ -315,7 +349,16 @@ Narrow scope. Inputs: latest merged artifact + the conflicting patch cluster + s
 
 ## Status Schema
 
-Agent-written (refinement pass):
+Agent-written (authoring phase position files, P2/P4/P6):
+
+| Status | Meaning |
+|---|---|
+| `EXTRACTED` | P2 or P4 author position — flow list extracted from source. |
+| `WRITTEN` | P6 author position — per-flow test plan drafted. |
+
+These are non-gating statuses: the orchestrator union-merges the two peer positions into a merged artifact regardless of EXTRACTED / WRITTEN content.
+
+Agent-written (refinement pass, P3/P5/P7):
 
 | Status | Meaning |
 |---|---|
@@ -351,9 +394,9 @@ P3 emits two readiness bits independently:
 
 Downstream behavior:
 
-- P4 waits for `seam_index_ready` from ALL services (or DEGRADED-CONTINUE / BLOCKED terminal state).
-- P6 streams on per-service `local_flows_ready` (independent per service).
-- P6 cross-app flows wait for P5 `GATE-PASSED`.
+- P4 waits for `seam_index_ready` from ALL services (or per-service DEGRADED-CONTINUE / BLOCKED terminal state — both unblock P4).
+- P6 streams on per-service `local_flows_ready` OR per-service DEGRADED-CONTINUE. BLOCKED services do NOT stream into P6.
+- P6 cross-app flows fire on P5 `GATE-PASSED` OR `DEGRADED-CONTINUE`. BLOCKED cross-app does NOT trigger cross-app P6.
 
 `LATE-SERVICE-GAP` from P4/P5 reopens a specific service artifact. The orchestrator:
 
@@ -512,11 +555,15 @@ CODEX_FLAGS=(
 run_once() {
   : > "$STREAM"
   : > "$STDERR_LOG"
-  rm -f "$SESSION_FILE.new"
+  if [[ "$FRESH_ONLY" != "1" ]]; then
+    rm -f "$SESSION_FILE.new"
+  fi
   "${CMD[@]}" < "$PROMPT_FILE" 2>>"$STDERR_LOG" | while IFS= read -r line; do
     printf '%s\n' "$line" >> "$STREAM"
-    if [[ "$line" =~ \"type\":\"thread.started\" ]] && [[ "$line" =~ \"thread_id\":\"([^\"]+)\" ]]; then
-      printf '%s\n' "${BASH_REMATCH[1]}" > "$SESSION_FILE.new"
+    if [[ "$FRESH_ONLY" != "1" ]]; then
+      if [[ "$line" =~ \"type\":\"thread.started\" ]] && [[ "$line" =~ \"thread_id\":\"([^\"]+)\" ]]; then
+        printf '%s\n' "${BASH_REMATCH[1]}" > "$SESSION_FILE.new"
+      fi
     fi
   done
   return "${PIPESTATUS[0]}"
@@ -555,7 +602,11 @@ monitor_once() {
   wait "$pid"
   RUN_STATUS=$?
   RUN_STALLED=$stalled
-  if [[ -s "$SESSION_FILE.new" ]]; then mv "$SESSION_FILE.new" "$SESSION_FILE"; fi
+  if [[ "$FRESH_ONLY" != "1" && -s "$SESSION_FILE.new" ]]; then
+    mv "$SESSION_FILE.new" "$SESSION_FILE"
+  elif [[ "$FRESH_ONLY" == "1" ]]; then
+    rm -f "$SESSION_FILE.new"
+  fi
 }
 
 # Refinement passes (P3/P5/P7) MUST set FRESH_ONLY=1 to forbid session resume.
@@ -637,7 +688,7 @@ Before each dispatch:
 Before P8 finalization:
 
 1. Coverage matrix complete: every entrypoint maps to flow OR exclusion.
-2. `scripts/check-refs.py` passes on the entire `test-plan/**/*.md` tree.
+2. `scripts/check-refs.py` (from plugin root) passes on the entire `test-plan/**/*.md` tree.
 3. Late-gap queue empty.
 4. No artifact in the mission folder has `Status: INCONCLUSIVE` or `Status: INVALID` without a downstream peer-attested resolution.
 5. All open `phase_start` journal events have corresponding `phase_complete` records.
