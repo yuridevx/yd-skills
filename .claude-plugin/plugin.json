@@ -1,7 +1,7 @@
 {
   "name": "yd",
-  "version": "0.3.0",
-  "description": "Duo skills: symmetric Claude+Codex convergence (design, discuss, forge, prod-ready, research, review, testplan-build) plus the linked-testplan rulebook and scripts/check-refs.py validator used by duo-testplan-build.",
+  "version": "0.4.0",
+  "description": "Duo skills: symmetric Claude+Codex convergence (design, discuss, forge, prod-ready, research, review, testplan-build, testplan-converge) plus the linked-testplan rulebook and scripts/check-refs.py validator used by both testplan skills.",
   "author": {
     "name": "Yurii Denysenko",
     "email": "yuridevx@gmail.com",

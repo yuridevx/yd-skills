@@ -4,7 +4,7 @@ Dual-target plugin: ships the same skill set to Claude Code and Codex CLI from o
 
 ## What you get
 
-Seven duo skills for symmetric Claude+Codex convergence (each dispatches a parallel `codex` agent and writes a converged artifact under `Duo/<MissionKind>-<slug>/Result.md`) plus one passive rulebook skill.
+Eight duo skills for symmetric Claude+Codex convergence (each dispatches a parallel `codex` agent and writes a converged artifact under `Duo/<MissionKind>-<slug>/Result.md`) plus one passive rulebook skill.
 
 | Skill | Kind | Output | Writes code? |
 |---|---|---|---|
@@ -14,14 +14,15 @@ Seven duo skills for symmetric Claude+Codex convergence (each dispatches a paral
 | `duo-prod-ready` | duo | per-cycle commits on the working branch | YES |
 | `duo-research` | duo | `Duo/Research-<slug>/Result.md` | no |
 | `duo-review` | duo | `Duo/Review-<slug>/Result.md` | no |
-| `duo-testplan-build` | duo | `Duo/TestPlan-<slug>/Result.md` + `test-plan/<repo>/<svc>/flows/<flow>.md` tree | no (writes test plan markdown only) |
-| `linked-testplan` | rulebook | (loaded by `duo-testplan-build` or by explicit reference; no output of its own) | no |
+| `duo-testplan-build` | duo | `Duo/TestPlan-<slug>/Result.md` + `test-plan/<repo>/<svc>/flows/<flow>.md` tree (8-phase union-merge + N-pass refinement) | no (writes test plan markdown only) |
+| `duo-testplan-converge` | duo | `Duo/TestPlan-<slug>/Result.md` + `test-plan/<repo>/<svc>/flows/<flow>.md` tree (6-phase per-unit duo author + step-by-step diff convergence, ~3-5x lower dispatch ceiling) | no (writes test plan markdown only) |
+| `linked-testplan` | rulebook | (loaded by `duo-testplan-build` / `duo-testplan-converge` or by explicit reference; no output of its own) | no |
 
 All duo skills trigger only on the explicit `duo` keyword (e.g. `duo design X`, `duo-review X`, `/duo-prod-ready <scope>`). None auto-activate on plain `design X` / `review X` phrasing. The `linked-testplan` rulebook is passive — loaded by orchestrator-dispatched agents or activated only on explicit `apply linked-testplan rules to X` prose.
 
 ## Requirements
 
-- `codex` CLI on PATH. Skills pin model `gpt-5.5`, reasoning `xhigh`, yolo / `--dangerously-bypass-approvals-and-sandbox`. Web search is `live` for most skills. `duo-testplan-build` is the exception: web search defaults OFF (source code is the only ground truth); flip to `live` with the `web-allowed` prose modifier.
+- `codex` CLI on PATH. Skills pin model `gpt-5.5`, reasoning `xhigh`, yolo / `--dangerously-bypass-approvals-and-sandbox`. Web search is `live` for most skills. `duo-testplan-build` and `duo-testplan-converge` are exceptions: web search defaults OFF (source code is the only ground truth); flip to `live` with the `web-allowed` prose modifier.
 - Git working tree at the convergence target.
 
 ## Install

@@ -41,7 +41,7 @@ Triggers on explicit `duo` phrasing: `duo testplan X`, `duo-testplan X`, `/duo-t
 | `very-high-concurrency` | Concurrency cap → 16/16. |
 | `refine-passes=N` | Parallel passes per refinement iteration (default 2). |
 | `extended-budget` | Total mission wall-clock 90 min → 180 min. |
-| `web-allowed` | Codex `web_search` flipped from `off` to `live` (default off; test planning grounds in source). |
+| `web-allowed` | Codex `web_search` flipped from `disabled` to `live` (default disabled; test planning grounds in source). |
 
 Distinguish autonomous trigger phrases from topic adjectives ("design an autonomous system" is topic, not mode).
 
@@ -528,7 +528,7 @@ PROMPT_FILE="${PROMPT_FILE:?absolute prompt path}"
 CODEX_OUT="${CODEX_OUT:?absolute codex output path}"
 SESSION_FILE="${SESSION_FILE:-$MISSION/.codex/session-$UNIT_KEY}"
 FRESH_ONLY="${FRESH_ONLY:-0}"
-WEB_SEARCH="${WEB_SEARCH:-off}"
+WEB_SEARCH="${WEB_SEARCH:-disabled}"
 
 mkdir -p "$MISSION/.codex"
 
